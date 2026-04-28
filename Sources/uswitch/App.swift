@@ -18,6 +18,7 @@ enum App {
 
         let cache = ThumbnailCache()
         cache.startObserving()
+        Spaces.startObserving()
         let switcher = Switcher(cache: cache)
         let tap = EventTap()
         tap.isActive  = { MainActor.assumeIsolated { switcher.isOpen } }

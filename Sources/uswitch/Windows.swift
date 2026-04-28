@@ -16,7 +16,7 @@ enum Windows {
         guard let raw = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
-        return raw.compactMap { dict in
+        let candidates: [WindowInfo] = raw.compactMap { dict in
             guard let layer = dict[kCGWindowLayer as String] as? Int, layer == 0,
                   let pid = dict[kCGWindowOwnerPID as String] as? pid_t,
                   let id = dict[kCGWindowNumber as String] as? CGWindowID,
@@ -28,6 +28,17 @@ enum Windows {
             let title = (dict[kCGWindowName as String] as? String) ?? ""
             return WindowInfo(id: id, pid: pid, title: title, appName: appName, bounds: bounds)
         }
+        // CGWindowList can report stale on-screen windows during/after a
+        // Space switch. Filter to windows that actually live on a currently
+        // active Space (sticky/all-Spaces windows belong to every Space, so
+        // they're kept too).
+        let destination = Spaces.destinationSpaceIDs()
+        print("[windows] currentSpace destination=\(destination) candidates=\(candidates.count)")
+        for w in candidates {
+            print("  - \(w.appName) [\(w.id)] spaces=\(Spaces.spaceIDs(for: w.id))")
+        }
+        guard !destination.isEmpty else { return candidates }
+        return candidates.filter { !Spaces.spaceIDs(for: $0.id).isDisjoint(with: destination) }
     }
 
     static func raise(_ window: WindowInfo) {

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(swift build *)",
+      "Bash(swift package *)",
+      "Skill(changelog)"
     ]
   }
 }

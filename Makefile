@@ -1,38 +1,45 @@
-.PHONY: dev install uninstall reset-perms cloc clean
+.PHONY: dev install uninstall reset-perms setup-cert cloc clean
 
-DEV_APP     = dist/uswitch.app
-RELEASE_APP = dist/uSwitch.app
-INSTALLED   = /Applications/uSwitch.app
-VERSION    ?= 0.1
+DEV_APP      = dist/uswitch.app
+RELEASE_APP  = dist/uSwitch.app
+INSTALLED    = /Applications/uSwitch.app
+VERSION     ?= 0.2
+SIGN_ID      = uSwitch Self-Signed
 
-dev:
+dev: setup-cert
 	@swift build -c debug
 	@mkdir -p $(DEV_APP)/Contents/MacOS $(DEV_APP)/Contents/Resources
 	@cp .build/debug/uswitch $(DEV_APP)/Contents/MacOS/uswitch
 	@cp Resources/AppIcon.icns $(DEV_APP)/Contents/Resources/AppIcon.icns
+	@cp CHANGELOG.md $(DEV_APP)/Contents/Resources/CHANGELOG.md
 	@sed 's/__VERSION__/dev/g' Resources/Info.plist > $(DEV_APP)/Contents/Info.plist
-	@codesign --sign - --force $(DEV_APP) >/dev/null 2>&1
+	@codesign --sign "$(SIGN_ID)" --force --identifier com.nh.uswitch $(DEV_APP) >/dev/null 2>&1
 	@pkill -x uswitch 2>/dev/null || true
 	@echo "→ running $(DEV_APP)/Contents/MacOS/uswitch (Ctrl+C to quit)"
 	@$(DEV_APP)/Contents/MacOS/uswitch
 
-install: reset-perms
+install: setup-cert
 	@swift build -c release
 	@rm -rf $(RELEASE_APP)
 	@mkdir -p $(RELEASE_APP)/Contents/MacOS $(RELEASE_APP)/Contents/Resources
 	@cp .build/release/uswitch $(RELEASE_APP)/Contents/MacOS/uswitch
 	@cp Resources/AppIcon.icns $(RELEASE_APP)/Contents/Resources/AppIcon.icns
+	@cp CHANGELOG.md $(RELEASE_APP)/Contents/Resources/CHANGELOG.md
 	@sed 's/__VERSION__/$(VERSION)/g' Resources/Info.plist > $(RELEASE_APP)/Contents/Info.plist
-	@codesign --sign - --force --deep $(RELEASE_APP) >/dev/null 2>&1
+	@codesign --sign "$(SIGN_ID)" --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
 	@pkill -x uswitch 2>/dev/null || true
 	@rm -rf $(INSTALLED)
 	@cp -R $(RELEASE_APP) $(INSTALLED)
-	@echo "✅ installed to $(INSTALLED) — launch via Spotlight (⌘Space → uSwitch)"
+	@open -a $(INSTALLED)
+	@echo "✅ installed and launched $(INSTALLED)"
 
-uninstall: reset-perms
+setup-cert:
+	@./scripts/setup-cert.sh
+
+uninstall:
 	@pkill -x uswitch 2>/dev/null || true
 	@rm -rf $(INSTALLED)
-	@echo "✅ removed $(INSTALLED)"
+	@echo "✅ removed $(INSTALLED) (run 'make reset-perms' to also revoke TCC grants)"
 
 reset-perms:
 	@tccutil reset Accessibility com.nh.uswitch >/dev/null 2>&1 || true

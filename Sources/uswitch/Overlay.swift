@@ -23,6 +23,9 @@ final class OverlayPanel: NSPanel {
 private let tileWidth: CGFloat = 180
 private let tileHeight: CGFloat = 120
 private let iconSize: CGFloat = 56
+private let tileSpacing: CGFloat = 12
+private let overlayPadding: CGFloat = 20
+private let screenMargin: CGFloat = 80
 
 struct ThumbnailTile: View {
     let window: WindowInfo
@@ -78,20 +81,39 @@ struct OverlayView: View {
     let windows: [WindowInfo]
     let thumbnails: [CGWindowID: NSImage]
     let selectedIndex: Int
+    let maxTilesPerRow: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            ForEach(Array(windows.enumerated()), id: \.element.id) { idx, w in
-                ThumbnailTile(
-                    window: w,
-                    thumbnail: thumbnails[w.id],
-                    selected: idx == selectedIndex
-                )
+        Group {
+            if windows.isEmpty {
+                Color.clear.frame(width: tileWidth * 0.25, height: tileHeight * 0.25)
+            } else {
+                let rows = chunked(Array(windows.enumerated()), size: max(1, maxTilesPerRow))
+                VStack(spacing: tileSpacing) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: tileSpacing) {
+                            ForEach(row, id: \.element.id) { idx, w in
+                                ThumbnailTile(
+                                    window: w,
+                                    thumbnail: thumbnails[w.id],
+                                    selected: idx == selectedIndex
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-        .padding(20)
+        .padding(overlayPadding)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func chunked<T>(_ array: [T], size: Int) -> [[T]] {
+        guard size > 0 else { return [array] }
+        return stride(from: 0, to: array.count, by: size).map {
+            Array(array[$0..<min($0 + size, array.count)])
+        }
     }
 }
 
@@ -103,6 +125,8 @@ final class Switcher {
     private var thumbnails: [CGWindowID: NSImage] = [:]
     private var selectedIndex: Int = 0
     private var openGeneration: Int = 0
+    private var openScreen: NSScreen?
+    private var openTilesPerRow: Int = 1
     private let cache: ThumbnailCache
     var isOpen: Bool { panel.isVisible }
 
@@ -113,11 +137,12 @@ final class Switcher {
     func open() {
         let t0 = Date()
         windows = Windows.currentSpace()
-        guard !windows.isEmpty else { return }
         selectedIndex = windows.count > 1 ? 1 : 0
         thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
             cache.image(for: w.id).map { (w.id, $0) }
         })
+        openScreen = currentScreen()
+        openTilesPerRow = tilesPerRow(for: windows.count, on: openScreen)
         render()
         positionAndShow()
         print("panel shown in \(Int(Date().timeIntervalSince(t0) * 1000))ms (cached \(thumbnails.count)/\(windows.count))")
@@ -168,27 +193,46 @@ final class Switcher {
     }
 
     private func render() {
-        let view = OverlayView(windows: windows, thumbnails: thumbnails, selectedIndex: selectedIndex)
-        if let hosting {
-            hosting.rootView = view
-        } else {
+        let view = OverlayView(
+            windows: windows,
+            thumbnails: thumbnails,
+            selectedIndex: selectedIndex,
+            maxTilesPerRow: openTilesPerRow
+        )
+        let h = hosting ?? {
             let h = NSHostingView(rootView: view)
             hosting = h
             panel.contentView = h
-        }
-        if let hosting {
-            panel.setContentSize(hosting.fittingSize)
-        }
+            return h
+        }()
+        h.rootView = view
+        panel.setContentSize(h.fittingSize)
+    }
+
+    private func currentScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main
+    }
+
+    private func tilesPerRow(for count: Int, on screen: NSScreen?) -> Int {
+        guard count > 1 else { return max(1, count) }
+        let available = (screen?.visibleFrame.width ?? 1280) - screenMargin * 2 - overlayPadding * 2
+        let fit = max(1, Int((available + tileSpacing) / (tileWidth + tileSpacing)))
+        return min(count, fit)
     }
 
     private func positionAndShow() {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = openScreen else { return }
         let size = panel.frame.size
         let origin = CGPoint(
             x: screen.frame.midX - size.width / 2,
             y: screen.frame.midY - size.height / 2
         )
         panel.setFrameOrigin(origin)
+        // Reapply on every show — macOS otherwise pins the panel to the Space
+        // it was last ordered-front in, so a Cmd+Tab from another Space draws
+        // nothing visible even though the switcher is logically open.
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         panel.orderFrontRegardless()
     }
 }
