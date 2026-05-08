@@ -53,11 +53,20 @@ enum Windows {
             return
         }
         let from = NSWorkspace.shared.frontmostApplication ?? target
-        let ok: Bool
+        var ok: Bool
         if #available(macOS 14.0, *) {
             ok = target.activate(from: from)
         } else {
             ok = target.activate(options: [.activateIgnoringOtherApps])
+        }
+        // macOS 14+ activate(from:) needs the source app to yield; some apps
+        // (Ghostty, Electron, etc.) don't, so it returns false silently.
+        // Fall back to the legacy path and force AXFrontmost.
+        if !ok {
+            ok = target.activate(options: [.activateIgnoringOtherApps])
+            let axApp = AXUIElementCreateApplication(window.pid)
+            AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            print("raise: fallback activate=\(ok) (AXFrontmost forced)")
         }
         print("raise: activate=\(ok) from=\(from.localizedName ?? "?") -> \(target.localizedName ?? "?")")
 

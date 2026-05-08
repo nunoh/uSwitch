@@ -11,7 +11,9 @@
 
 ## Why?
 
-I used [HyperSwitch](https://bahoom.com/hyperswitch) for years and loved it, but it's now unmaintained — kept nagging me with a "Check for updates" popup and would randomly crash. [AltTab](https://alt-tab.app/) didn't play nicely with my iTerm2 workflow ([lwouis/alt-tab-macos#1217](https://github.com/lwouis/alt-tab-macos/issues/1217)). So I vibecoded my own.
+[HyperSwitch](https://bahoom.com/hyperswitch) set the bar for thumbnail-based window switching on macOS, but it is no longer maintained — it nags with a "Check for updates" prompt and crashes intermittently. [AltTab](https://alt-tab.app/) is actively developed and far more configurable, but its key handling can conflict with terminal workflows that bind Cmd+Esc ([lwouis/alt-tab-macos#1217](https://github.com/lwouis/alt-tab-macos/issues/1217)).
+
+uSwitch targets the narrow gap between them: HyperSwitch's switching model, in a small, current, native binary that leaves the rest of your key bindings alone.
 
 ## Install
 
@@ -54,7 +56,7 @@ make release  # release build + versioned Apple Silicon zip
 make install  # release build into /Applications and launches
 ```
 
-Local `dev`, `bundle`, and `install` builds use the stable self-signed certificate from `scripts/setup-cert.sh`, so permission grants persist across local rebuilds. Downloadable release archives use an ad-hoc signature so they do not depend on a certificate that only exists on the maintainer's Mac.
+Local `dev`, `bundle`, and `install` builds use the stable self-signed certificate from `scripts/setup-cert.sh`, so permission grants persist across local rebuilds. Downloadable release archives use an ad-hoc signature so they do not depend on a certificate that exists only on the build machine.
 
 ## Roadmap
 
