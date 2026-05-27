@@ -19,6 +19,12 @@ Grab the latest `.app` from [Releases](https://github.com/nunoh/uSwitch/releases
 
 > macOS 13+. The app is ad-hoc signed; on first launch right-click → Open to bypass Gatekeeper.
 
+**Managed Mac (corporate MDM):** right-click → Open may be blocked. Instead, copy the `.app` via AirDrop, USB, or any means other than a browser download, then strip the quarantine flag before opening:
+```sh
+xattr -dr com.apple.quarantine ~/Applications/uSwitch.app
+```
+No admin rights needed. Gatekeeper only checks apps that carry the quarantine flag.
+
 ## First run
 
 uSwitch needs two permissions:
