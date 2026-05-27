@@ -1,10 +1,14 @@
-.PHONY: dev install uninstall reset-perms setup-cert cloc clean
+.PHONY: dev install uninstall reset-perms setup-cert cloc clean install-gnome-extension uninstall-gnome-extension
 
 DEV_APP      = dist/uswitch.app
 RELEASE_APP  = dist/uSwitch.app
 INSTALLED    = /Applications/uSwitch.app
 VERSION     ?= 0.2
 SIGN_ID      = uSwitch Self-Signed
+GNOME_EXT_UUID = uswitch@nh.com
+GNOME_EXT_SRC  = gnome-extension/$(GNOME_EXT_UUID)
+GNOME_EXT_DST  = $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXT_UUID)
+GNOME_EXT_ZIP  = /tmp/$(GNOME_EXT_UUID).shell-extension.zip
 
 dev: setup-cert
 	@swift build -c debug
@@ -51,3 +55,14 @@ cloc:
 
 clean:
 	rm -rf .build dist
+
+install-gnome-extension:
+	@gnome-extensions pack $(GNOME_EXT_SRC) --force --out-dir /tmp
+	@gnome-extensions install --force $(GNOME_EXT_ZIP)
+	@echo "installed GNOME extension $(GNOME_EXT_UUID)"
+	@echo "enable with: gnome-extensions enable $(GNOME_EXT_UUID)"
+
+uninstall-gnome-extension:
+	@gnome-extensions disable $(GNOME_EXT_UUID) 2>/dev/null || true
+	@rm -rf $(GNOME_EXT_DST)
+	@echo "removed GNOME extension $(GNOME_EXT_UUID)"

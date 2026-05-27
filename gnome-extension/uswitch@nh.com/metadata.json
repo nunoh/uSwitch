@@ -1,0 +1,12 @@
+{
+  "uuid": "uswitch@nh.com",
+  "name": "uSwitch",
+  "description": "A compact Alt-Tab replacement with live thumbnails for windows on the current workspace.",
+  "shell-version": [
+    "48",
+    "49",
+    "50"
+  ],
+  "url": "https://github.com/nunoh/uSwitch",
+  "version": 1
+}
