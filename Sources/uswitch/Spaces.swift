@@ -25,10 +25,10 @@ enum Spaces {
     nonisolated(unsafe) private static var cachedActiveSpaceIDs: Set<CGSSpaceID> = []
     nonisolated(unsafe) private static var didStartObserving = false
 
-    /// Subscribe to active-Space changes. macOS posts the notification the
-    /// moment a new Space is committed (at the start of the slide animation,
-    /// not the end), so the cache stays accurate even under rapid ctrl+arrow
-    /// switching where CGSCopyManagedDisplaySpaces lags behind.
+    /// Subscribe to active-Space changes as a cache warmer. The notification is
+    /// not reliable on its own — macOS sometimes drops it, leaving the cache
+    /// pinned to a stale Space until the app restarts. Treat it as a hint; the
+    /// authoritative answer comes from a live read at trigger time.
     static func startObserving() {
         guard !didStartObserving else { return }
         didStartObserving = true
@@ -58,11 +58,21 @@ enum Spaces {
         return ids
     }
 
-    /// Trusted "current Space" IDs. Prefers the cache updated on each
-    /// activeSpaceDidChange notification; falls back to a live read before
-    /// the first notification fires.
+    /// Trusted "current Space" IDs. Always re-reads at the call site —
+    /// activeSpaceDidChange can be silently dropped by macOS, which would
+    /// otherwise leave the cache pinned to a previous Space and make the
+    /// switcher show no windows after a Space switch. The live read also
+    /// refreshes the cache so it stays warm.
     static func reportedCurrentSpaceIDs() -> Set<CGSSpaceID> {
-        cachedActiveSpaceIDs.isEmpty ? readCurrentSpaceIDs() : cachedActiveSpaceIDs
+        let live = readCurrentSpaceIDs()
+        if !live.isEmpty {
+            if live != cachedActiveSpaceIDs {
+                print("[spaces] live read corrected cache — was=\(cachedActiveSpaceIDs) now=\(live)")
+                cachedActiveSpaceIDs = live
+            }
+            return live
+        }
+        return cachedActiveSpaceIDs
     }
 
     /// All Space IDs the given window belongs to (sticky windows belong to
