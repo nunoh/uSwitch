@@ -136,12 +136,12 @@ final class Switcher {
 
     func open() {
         let t0 = Date()
-        windows = Windows.currentSpace()
+        openScreen = currentScreen()
+        windows = Windows.currentSpace(on: openScreen)
         selectedIndex = windows.count > 1 ? 1 : 0
         thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
             cache.image(for: w.id).map { (w.id, $0) }
         })
-        openScreen = currentScreen()
         openTilesPerRow = tilesPerRow(for: windows.count, on: openScreen)
         render()
         positionAndShow()

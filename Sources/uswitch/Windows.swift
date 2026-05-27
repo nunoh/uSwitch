@@ -11,7 +11,7 @@ struct WindowInfo: Identifiable {
 }
 
 enum Windows {
-    static func currentSpace() -> [WindowInfo] {
+    static func currentSpace(on screen: NSScreen?) -> [WindowInfo] {
         let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
             return []
@@ -28,11 +28,11 @@ enum Windows {
             let title = (dict[kCGWindowName as String] as? String) ?? ""
             return WindowInfo(id: id, pid: pid, title: title, appName: appName, bounds: bounds)
         }
-        // CGWindowList can report stale on-screen windows during/after a
-        // Space switch. Filter to windows that actually live on a currently
-        // active Space (sticky/all-Spaces windows belong to every Space, so
-        // they're kept too).
-        let destination = Spaces.destinationSpaceIDs()
+        // CGWindowList reports windows across every display, plus stale ones
+        // during/after a Space switch. Filter to windows on the current Space
+        // of the display the overlay opened on (sticky/all-Spaces windows
+        // belong to every Space, so they're kept too).
+        let destination = Spaces.currentSpaceIDs(for: screen)
         print("[windows] currentSpace destination=\(destination) candidates=\(candidates.count)")
         for w in candidates {
             print("  - \(w.appName) [\(w.id)] spaces=\(Spaces.spaceIDs(for: w.id))")

@@ -48,14 +48,13 @@ enum Spaces {
     private static func readCurrentSpaceIDs() -> Set<CGSSpaceID> {
         let cid = CGSMainConnectionID()
         guard let displays = CGSCopyManagedDisplaySpaces(cid) as? [[String: Any]] else { return [] }
-        var ids: Set<CGSSpaceID> = []
-        for display in displays {
-            if let current = display["Current Space"] as? [String: Any],
-               let id = current["ManagedSpaceID"] as? CGSSpaceID ?? current["id64"] as? CGSSpaceID {
-                ids.insert(id)
-            }
-        }
-        return ids
+        return Set(displays.compactMap(currentSpaceID))
+    }
+
+    /// The "Current Space" ID from one entry of the managed-displays array.
+    private static func currentSpaceID(of display: [String: Any]) -> CGSSpaceID? {
+        guard let current = display["Current Space"] as? [String: Any] else { return nil }
+        return current["ManagedSpaceID"] as? CGSSpaceID ?? current["id64"] as? CGSSpaceID
     }
 
     /// Trusted "current Space" IDs. Always re-reads at the call site —
@@ -84,9 +83,39 @@ enum Spaces {
         return Set(raw.map { $0.uint64Value })
     }
 
-    /// The Space the user is heading toward — just the cached active Space
-    /// IDs, kept fresh by the activeSpaceDidChange observer.
-    static func destinationSpaceIDs() -> Set<CGSSpaceID> {
-        reportedCurrentSpaceIDs()
+    /// Current-Space IDs to filter the switcher by: only the Space of the
+    /// display the overlay is showing on, so windows living on another
+    /// monitor's current Space don't leak into the list. Falls back to every
+    /// display's current Space when the display can't be matched (single
+    /// display, or a read that turns up nothing).
+    static func currentSpaceIDs(for screen: NSScreen?) -> Set<CGSSpaceID> {
+        if let screen, let ids = liveSpaceIDs(for: screen), !ids.isEmpty {
+            print("[spaces] scoped to display \(displayIdentifier(for: screen) ?? "?") space=\(ids)")
+            return ids
+        }
+        let all = reportedCurrentSpaceIDs()
+        print("[spaces] no display match — falling back to all displays \(all)")
+        return all
+    }
+
+    /// The current Space of a single display, matched by its CoreGraphics UUID
+    /// against the "Display Identifier" key. nil when the display isn't found.
+    private static func liveSpaceIDs(for screen: NSScreen) -> Set<CGSSpaceID>? {
+        guard let wantID = displayIdentifier(for: screen) else { return nil }
+        let cid = CGSMainConnectionID()
+        guard let displays = CGSCopyManagedDisplaySpaces(cid) as? [[String: Any]] else { return nil }
+        for display in displays where (display["Display Identifier"] as? String) == wantID {
+            if let id = currentSpaceID(of: display) { return [id] }
+        }
+        return nil
+    }
+
+    /// CoreGraphics display-UUID string for a screen, matching the
+    /// "Display Identifier" values in CGSCopyManagedDisplaySpaces.
+    private static func displayIdentifier(for screen: NSScreen) -> String? {
+        guard let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(CGDirectDisplayID(num.uint32Value))?.takeRetainedValue()
+        else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String?
     }
 }
