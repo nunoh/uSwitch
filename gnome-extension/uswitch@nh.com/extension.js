@@ -359,7 +359,13 @@ class USwitchPopup extends St.Widget {
         }
 
         if (symbol === Clutter.KEY_Tab || symbol === Clutter.KEY_ISO_Left_Tab) {
-            this.cycle((state & Clutter.ModifierType.SHIFT_MASK) !== 0);
+            // Shift+Tab arrives as the keysym ISO_Left_Tab; on Wayland the
+            // SHIFT_MASK bit is often already consumed from `state` by then, so
+            // treat that keysym as backward on its own rather than trusting the
+            // modifier bit alone.
+            const backward = symbol === Clutter.KEY_ISO_Left_Tab ||
+                (state & Clutter.ModifierType.SHIFT_MASK) !== 0;
+            this.cycle(backward);
             if (this._noModsTimeoutId)
                 this._resetNoModsTimeout();
             return Clutter.EVENT_STOP;
@@ -430,11 +436,13 @@ export default class USwitchExtension extends Extension {
         if (Main.wm._workspaceSwitcherPopup)
             Main.wm._workspaceSwitcherPopup.destroy();
 
-        const bindingName = binding && typeof binding.get_name === 'function'
-            ? binding.get_name()
-            : '';
-        const reversed = bindingName.endsWith('-backward') ||
-            (typeof binding?.is_reversed === 'function' && binding.is_reversed());
+        // On this GNOME build binding.get_name() comes back empty and
+        // is_reversed() is unusable, so neither can tell the forward accelerator
+        // (<Super>Tab) from the backward one (<Shift><Super>Tab). Read the live
+        // Shift state instead — held means backward — the same technique show()
+        // uses to sample the held modifier.
+        const [, , mods] = global.get_pointer();
+        const reversed = (mods & Clutter.ModifierType.SHIFT_MASK) !== 0;
 
         if (this._popup) {
             this._popup.cycle(reversed);
