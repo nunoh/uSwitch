@@ -27,6 +27,11 @@ private let tileSpacing: CGFloat = 12
 private let overlayPadding: CGFloat = 20
 private let screenMargin: CGFloat = 80
 
+// Grace period before the panel becomes visible. A fast Cmd+Tab flick
+// (tap Tab, release Cmd within this window) switches to the previous window
+// without ever flashing the UI.
+private let panelShowDelay: TimeInterval = 0.1
+
 struct ThumbnailTile: View {
     let window: WindowInfo
     let thumbnail: NSImage?
