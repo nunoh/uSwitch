@@ -8,7 +8,8 @@ SIGN_ID      = uSwitch Self-Signed
 GNOME_EXT_UUID = uswitch@nh.com
 GNOME_EXT_SRC  = gnome-extension/$(GNOME_EXT_UUID)
 GNOME_EXT_DST  = $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXT_UUID)
-GNOME_EXT_ZIP  = /tmp/$(GNOME_EXT_UUID).shell-extension.zip
+GNOME_EXT_OUT  = $(HOME)/.cache/uswitch
+GNOME_EXT_ZIP  = $(GNOME_EXT_OUT)/$(GNOME_EXT_UUID).shell-extension.zip
 
 dev: setup-cert
 	@swift build -c debug
@@ -57,7 +58,8 @@ clean:
 	rm -rf .build dist
 
 install-gnome-extension:
-	@gnome-extensions pack $(GNOME_EXT_SRC) --force --out-dir /tmp
+	@mkdir -p $(GNOME_EXT_OUT)
+	@gnome-extensions pack $(GNOME_EXT_SRC) --force --out-dir $(GNOME_EXT_OUT)
 	@gnome-extensions install --force $(GNOME_EXT_ZIP)
 	@echo "installed GNOME extension $(GNOME_EXT_UUID)"
 	@echo "enable with: gnome-extensions enable $(GNOME_EXT_UUID)"
@@ -66,3 +68,10 @@ uninstall-gnome-extension:
 	@gnome-extensions disable $(GNOME_EXT_UUID) 2>/dev/null || true
 	@rm -rf $(GNOME_EXT_DST)
 	@echo "removed GNOME extension $(GNOME_EXT_UUID)"
+
+# NOTE: reloading the extension requires a full GNOME Shell restart. On Wayland
+# (Ubuntu's only session here) that means log out and back in — the shell can't
+# restart in place, this mutter build has no nested backend, and neither
+# disable/enable nor the ReloadExtension D-Bus call re-reads the JS. So the loop
+# is: edit -> make install-gnome-extension -> log out/in -> test.
+# Full notes: gnome-extension/DEVELOPING.md
