@@ -4,7 +4,9 @@
       "Bash(npm run *)",
       "Bash(swift build *)",
       "Bash(swift package *)",
-      "Skill(changelog)"
+      "Skill(changelog)",
+      "Bash(make dev *)",
+      "Read(//usr/share/gnome-shell/**)"
     ]
   }
 }
