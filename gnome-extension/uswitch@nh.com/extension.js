@@ -1,4 +1,5 @@
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
@@ -19,27 +20,48 @@ const NATIVE_KEYBINDINGS = [
 
 const SWITCHER_ACTION_MODE = Shell.ActionMode.NORMAL | Shell.ActionMode.POPUP;
 
+// How long the popup lingers before auto-committing when opened without a held
+// modifier (e.g. triggered via a tap binding). Matches GNOME's switcher.
+const NO_MODS_TIMEOUT = 1500;
+
+// Grace period before the popup becomes visible. A fast Super+Tab flick (tap
+// Tab, release Super within this window) switches to the previous window
+// without ever flashing the UI. Cycling again reveals it immediately. Kept
+// short so a deliberate open doesn't feel laggy (GNOME's own default is 150ms).
+const POPUP_DELAY = 50;
+
+// The "hold to browse" modifiers we track. binding.get_mask() reports a virtual
+// modifier (e.g. SUPER_MASK = 1<<26) that never matches global.get_pointer()'s
+// resolved state (Super = MOD4_MASK = 1<<6), so we sample the live state at open
+// time instead and watch these bits. Shift/lock are excluded: Shift selects
+// direction, and lock keys (Caps/Num) must not pin the popup open.
+const HOLD_MODS =
+    Clutter.ModifierType.CONTROL_MASK |
+    Clutter.ModifierType.MOD1_MASK |
+    Clutter.ModifierType.MOD4_MASK |
+    Clutter.ModifierType.MOD5_MASK |
+    Clutter.ModifierType.SUPER_MASK |
+    Clutter.ModifierType.HYPER_MASK |
+    Clutter.ModifierType.META_MASK;
+
 const TILE_WIDTH = 180;
 const TILE_HEIGHT = 120;
 const ICON_SIZE = 52;
 const TILE_SPACING = 12;
 const SCREEN_MARGIN = 80;
 
-const UModifier = {
-    SHIFT: Clutter.ModifierType.SHIFT_MASK,
-    ALT: Clutter.ModifierType.MOD1_MASK,
-    SUPER: Clutter.ModifierType.SUPER_MASK,
-    HYPER: Clutter.ModifierType.HYPER_MASK,
-    META: Clutter.ModifierType.META_MASK,
-};
-
+// Reduce a modifier mask to its lowest set bit, so a multi-modifier state
+// (e.g. Super+Shift) collapses to the single "hold" modifier we watch.
 function primaryModifier(mask) {
-    for (const modifier of [UModifier.ALT, UModifier.SUPER, UModifier.META, UModifier.HYPER]) {
-        if (mask & modifier)
-            return modifier;
-    }
+    if (mask === 0)
+        return 0;
 
-    return 0;
+    let primary = 1;
+    while (mask > 1) {
+        mask >>= 1;
+        primary <<= 1;
+    }
+    return primary;
 }
 
 const UWindowTile = GObject.registerClass(
@@ -135,7 +157,7 @@ class UWindowTile extends St.BoxLayout {
 
 const USwitchPopup = GObject.registerClass(
 class USwitchPopup extends St.Widget {
-    _init(windows, reversed, bindingMask) {
+    _init(windows, reversed) {
         super._init({
             reactive: true,
             can_focus: true,
@@ -144,11 +166,13 @@ class USwitchPopup extends St.Widget {
         });
 
         this._windows = windows;
-        this._modifierMask = primaryModifier(bindingMask);
+        this._modifierMask = 0; // sampled from the live held modifier in show()
         this._selectedIndex = this._initialSelection(reversed);
         this._tiles = [];
         this._signals = [];
         this._modalGrab = null;
+        this._noModsTimeoutId = 0;
+        this._showTimeoutId = 0;
 
         this.add_constraint(new Clutter.BindConstraint({
             source: global.stage,
@@ -174,8 +198,12 @@ class USwitchPopup extends St.Widget {
         }
 
         this._modalGrab = grab;
-        this._position();
+        // Mapped (visible) but fully transparent, so it keeps the keyboard grab
+        // and receives Tab/Escape/release while invisible. A quick flick commits
+        // and destroys before the delay fires, so the UI never paints.
+        this.opacity = 0;
         this.visible = true;
+        this._position();
         this.grab_key_focus();
 
         this._signals.push(
@@ -183,12 +211,52 @@ class USwitchPopup extends St.Widget {
             this.connect('key-release-event', this._onKeyRelease.bind(this))
         );
 
+        this._showTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POPUP_DELAY, () => {
+            this._showTimeoutId = 0;
+            this._showImmediately();
+            return GLib.SOURCE_REMOVE;
+        });
+
+        // Sample the modifier physically held right now (the trigger key, e.g.
+        // Super) and track exactly those bits. This is self-consistent with the
+        // release check below, unlike binding.get_mask()'s virtual modifier.
+        const [, , mods] = global.get_pointer();
+        this._modifierMask = primaryModifier(mods & HOLD_MODS);
+
+        // Race: the modifier may already be up by the time we grabbed (or it was
+        // a tap-style trigger). Fall back to the no-mods timeout so the popup is
+        // still dismissable instead of committing to nothing.
+        if (this._modifierMask === 0)
+            this._resetNoModsTimeout();
+
         return true;
+    }
+
+    _showImmediately() {
+        if (this._showTimeoutId) {
+            GLib.source_remove(this._showTimeoutId);
+            this._showTimeoutId = 0;
+        }
+        this.opacity = 255;
+    }
+
+    _resetNoModsTimeout() {
+        if (this._noModsTimeoutId)
+            GLib.source_remove(this._noModsTimeoutId);
+
+        this._noModsTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, NO_MODS_TIMEOUT, () => {
+            this._noModsTimeoutId = 0;
+            this.commit();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     cycle(backward) {
         if (this._windows.length === 0)
             return;
+
+        // Cycling past the initial pick is intent to browse — reveal now.
+        this._showImmediately();
 
         const step = backward ? -1 : 1;
         this._selectedIndex = (this._selectedIndex + step + this._windows.length) % this._windows.length;
@@ -212,6 +280,16 @@ class USwitchPopup extends St.Widget {
     }
 
     destroy() {
+        if (this._showTimeoutId) {
+            GLib.source_remove(this._showTimeoutId);
+            this._showTimeoutId = 0;
+        }
+
+        if (this._noModsTimeoutId) {
+            GLib.source_remove(this._noModsTimeoutId);
+            this._noModsTimeoutId = 0;
+        }
+
         for (const id of this._signals)
             this.disconnect(id);
         this._signals = [];
@@ -282,6 +360,14 @@ class USwitchPopup extends St.Widget {
 
         if (symbol === Clutter.KEY_Tab || symbol === Clutter.KEY_ISO_Left_Tab) {
             this.cycle((state & Clutter.ModifierType.SHIFT_MASK) !== 0);
+            if (this._noModsTimeoutId)
+                this._resetNoModsTimeout();
+            return Clutter.EVENT_STOP;
+        }
+
+        if (symbol === Clutter.KEY_Return || symbol === Clutter.KEY_KP_Enter ||
+            symbol === Clutter.KEY_ISO_Enter || symbol === Clutter.KEY_space) {
+            this.commit();
             return Clutter.EVENT_STOP;
         }
 
@@ -349,9 +435,6 @@ export default class USwitchExtension extends Extension {
             : '';
         const reversed = bindingName.endsWith('-backward') ||
             (typeof binding?.is_reversed === 'function' && binding.is_reversed());
-        const bindingMask = binding && typeof binding.get_mask === 'function'
-            ? binding.get_mask()
-            : UModifier.SUPER;
 
         if (this._popup) {
             this._popup.cycle(reversed);
@@ -362,7 +445,7 @@ export default class USwitchExtension extends Extension {
         if (windows.length === 0)
             return;
 
-        this._popup = new USwitchPopup(windows, reversed, bindingMask);
+        this._popup = new USwitchPopup(windows, reversed);
         this._popup.connect('destroy', () => {
             this._popup = null;
         });
