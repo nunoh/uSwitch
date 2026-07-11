@@ -66,7 +66,9 @@ so it no longer matters that the binding's mask is a different representation.
 
 ## Trigger key
 
-The extension overrides `switch-windows` (default `<Super>Tab`) and restores the
-native `switch-applications` (`<Alt>Tab`). Super is the Cmd-position key, so this
-keeps the macOS muscle memory. To move it to Alt+Tab, swap which keybindings the
-extension overrides vs. restores in `KEYBINDINGS` / `NATIVE_KEYBINDINGS`.
+The extension overrides both `switch-applications` (`<Alt>Tab`) and
+`switch-windows` (`<Super>Tab`), so either opens the uSwitch popup and every
+window gets its own tile. Super is the Cmd-position key (macOS muscle memory);
+Alt+Tab is also routed here because GNOME's native `switch-applications` groups
+windows by app, hiding extra windows of the same app. All four accelerators live
+in `KEYBINDINGS`; `disable()` restores them to GNOME's native handler.

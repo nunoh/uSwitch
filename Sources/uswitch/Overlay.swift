@@ -13,8 +13,8 @@ final class OverlayPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = true
         level = .popUpMenu
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        ignoresMouseEvents = true
+        collectionBehavior = overlayCollectionBehavior
+        ignoresMouseEvents = false
     }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -26,6 +26,13 @@ private let iconSize: CGFloat = 56
 private let tileSpacing: CGFloat = 12
 private let overlayPadding: CGFloat = 20
 private let screenMargin: CGFloat = 80
+private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
+    .moveToActiveSpace,
+    .transient,
+    .stationary,
+    .ignoresCycle,
+    .fullScreenAuxiliary,
+]
 
 // Grace period before the panel becomes visible. A fast Cmd+Tab flick
 // (tap Tab, release Cmd within this window) switches to the previous window
@@ -36,6 +43,7 @@ struct ThumbnailTile: View {
     let window: WindowInfo
     let thumbnail: NSImage?
     let selected: Bool
+    let hovered: Bool
 
     var body: some View {
         VStack(spacing: 6) {
@@ -61,11 +69,11 @@ struct ThumbnailTile: View {
             .frame(width: tileWidth, height: tileHeight)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(selected ? Color.white.opacity(0.18) : Color.clear)
+                    .fill(fillColor)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2.5)
+                    .stroke(strokeColor, lineWidth: selected ? 2.5 : 1.5)
             )
 
             Text(label)
@@ -80,13 +88,35 @@ struct ThumbnailTile: View {
     private var label: String {
         window.title.isEmpty ? window.appName : window.title
     }
+
+    private var fillColor: Color {
+        if selected { return Color.white.opacity(0.18) }
+        if hovered { return Color.white.opacity(0.10) }
+        return .clear
+    }
+
+    private var strokeColor: Color {
+        if selected { return .accentColor }
+        if hovered { return Color.white.opacity(0.5) }
+        return .clear
+    }
+}
+
+// The panel never becomes key, so every click arrives as a "first mouse";
+// without this override SwiftUI tap gestures inside the panel are dropped.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 struct OverlayView: View {
     let windows: [WindowInfo]
     let thumbnails: [CGWindowID: NSImage]
     let selectedIndex: Int
+    let hoveredIndex: Int?
     let maxTilesPerRow: Int
+    let onSelect: (Int) -> Void
+    let onHover: (Int) -> Void
+    let onHoverEnd: (Int) -> Void
 
     var body: some View {
         Group {
@@ -101,8 +131,17 @@ struct OverlayView: View {
                                 ThumbnailTile(
                                     window: w,
                                     thumbnail: thumbnails[w.id],
-                                    selected: idx == selectedIndex
+                                    selected: idx == selectedIndex,
+                                    hovered: idx == hoveredIndex
                                 )
+                                .contentShape(Rectangle())
+                                .onTapGesture { onSelect(idx) }
+                                .onContinuousHover { phase in
+                                    switch phase {
+                                    case .active: onHover(idx)
+                                    case .ended: onHoverEnd(idx)
+                                    }
+                                }
                             }
                         }
                     }
@@ -129,21 +168,55 @@ final class Switcher {
     private var windows: [WindowInfo] = []
     private var thumbnails: [CGWindowID: NSImage] = [:]
     private var selectedIndex: Int = 0
+    private var hoveredIndex: Int?
     private var openGeneration: Int = 0
     private var openScreen: NSScreen?
+    private var openSpaceIDs: Set<CGSSpaceID> = []
     private var openTilesPerRow: Int = 1
+    private var openMouseLocation: CGPoint = .zero
+    private var hoverArmed = false
+    private var activeSpaceObserver: NSObjectProtocol?
+    private var active = false
     private let cache: ThumbnailCache
-    var isOpen: Bool { panel.isVisible }
+    var isOpen: Bool {
+        guard active else { return false }
+        guard isStillInOpeningSpace() else {
+            print("switcher: active Space no longer matches; clearing stale overlay state")
+            close()
+            return false
+        }
+        return true
+    }
 
     init(cache: ThumbnailCache) {
         self.cache = cache
+        activeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleActiveSpaceDidChange()
+            }
+        }
+    }
+
+    deinit {
+        if let activeSpaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(activeSpaceObserver)
+        }
     }
 
     func open() {
         let t0 = Date()
+        active = true
         openScreen = currentScreen()
+        openSpaceIDs = Spaces.currentSpaceIDs(for: openScreen)
         windows = Windows.currentSpace(on: openScreen)
         selectedIndex = windows.count > 1 ? 1 : 0
+        hoveredIndex = nil
+        openMouseLocation = NSEvent.mouseLocation
+        hoverArmed = false
         thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
             cache.image(for: w.id).map { (w.id, $0) }
         })
@@ -178,23 +251,70 @@ final class Switcher {
         guard !windows.isEmpty else { return }
         let n = windows.count
         selectedIndex = backward ? (selectedIndex - 1 + n) % n : (selectedIndex + 1) % n
+        hoveredIndex = nil  // keyboard takes over from a resting cursor
+        render()
+    }
+
+    func commit(at index: Int) {
+        guard windows.indices.contains(index) else { return }
+        selectedIndex = index
+        hoveredIndex = nil
+        commit()
+    }
+
+    func hover(over index: Int) {
+        guard isOpen, windows.indices.contains(index) else { return }
+        // The panel opens centered, often right under the resting cursor;
+        // require real mouse movement before hover may steal the selection
+        // from the default previous-window target.
+        if !hoverArmed {
+            let loc = NSEvent.mouseLocation
+            guard hypot(loc.x - openMouseLocation.x, loc.y - openMouseLocation.y) > 5 else { return }
+            hoverArmed = true
+        }
+        guard index != hoveredIndex else { return }
+        hoveredIndex = index
+        render()
+    }
+
+    func hoverEnded(at index: Int) {
+        guard hoveredIndex == index else { return }
+        hoveredIndex = nil
+        guard isOpen else { return }
         render()
     }
 
     func commit() {
         guard isOpen else { print("commit: not open, ignoring"); return }
-        let target = windows.indices.contains(selectedIndex) ? windows[selectedIndex] : nil
+        let index = hoveredIndex ?? selectedIndex
+        let target = windows.indices.contains(index) ? windows[index] : nil
         close()
         if let target {
             print("commit: raising [\(target.pid)] \(target.appName) — \(target.title)")
             Windows.raise(target)
         } else {
-            print("commit: no target at index \(selectedIndex) (windows.count=\(windows.count))")
+            print("commit: no target at index \(index) (windows.count=\(windows.count))")
         }
     }
 
     func close() {
+        active = false
+        openGeneration &+= 1
+        openSpaceIDs = []
         panel.orderOut(nil)
+    }
+
+    private func handleActiveSpaceDidChange() {
+        guard active || panel.isVisible else { return }
+        print("switcher: active Space changed; clearing overlay state")
+        close()
+    }
+
+    private func isStillInOpeningSpace() -> Bool {
+        guard !openSpaceIDs.isEmpty else { return panel.isVisible }
+        let current = Spaces.currentSpaceIDs(for: openScreen)
+        guard !current.isEmpty else { return panel.isVisible }
+        return !current.isDisjoint(with: openSpaceIDs)
     }
 
     private func render() {
@@ -202,10 +322,14 @@ final class Switcher {
             windows: windows,
             thumbnails: thumbnails,
             selectedIndex: selectedIndex,
-            maxTilesPerRow: openTilesPerRow
+            hoveredIndex: hoveredIndex,
+            maxTilesPerRow: openTilesPerRow,
+            onSelect: { [weak self] idx in self?.commit(at: idx) },
+            onHover: { [weak self] idx in self?.hover(over: idx) },
+            onHoverEnd: { [weak self] idx in self?.hoverEnded(at: idx) }
         )
         let h = hosting ?? {
-            let h = NSHostingView(rootView: view)
+            let h = FirstMouseHostingView(rootView: view)
             hosting = h
             panel.contentView = h
             return h
@@ -234,10 +358,13 @@ final class Switcher {
             y: screen.frame.midY - size.height / 2
         )
         panel.setFrameOrigin(origin)
-        // Reapply on every show — macOS otherwise pins the panel to the Space
-        // it was last ordered-front in, so a Cmd+Tab from another Space draws
-        // nothing visible even though the switcher is logically open.
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        // Force a fresh Space association on every show. AppKit can report an
+        // ordered panel as visible after a Space change even when WindowServer
+        // is still holding it on the previous Space; ordering out first plus
+        // moveToActiveSpace makes the next Cmd+Tab create a visible panel in
+        // the active workspace.
+        panel.orderOut(nil)
+        panel.collectionBehavior = overlayCollectionBehavior
         panel.orderFrontRegardless()
     }
 }

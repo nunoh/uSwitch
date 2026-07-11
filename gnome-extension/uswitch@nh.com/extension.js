@@ -8,14 +8,15 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+// Both the application switcher (Alt+Tab) and the window switcher (Super+Tab)
+// are routed to uSwitch so every window shows as its own tile. GNOME's native
+// switch-applications groups windows by app, which hides additional windows of
+// the same app — the bug this extension exists to fix.
 const KEYBINDINGS = [
-    'switch-windows',
-    'switch-windows-backward',
-];
-
-const NATIVE_KEYBINDINGS = [
     'switch-applications',
     'switch-applications-backward',
+    'switch-windows',
+    'switch-windows-backward',
 ];
 
 const SWITCHER_ACTION_MODE = Shell.ActionMode.NORMAL | Shell.ActionMode.POPUP;
@@ -398,14 +399,13 @@ class USwitchPopup extends St.Widget {
 export default class USwitchExtension extends Extension {
     enable() {
         this._popup = null;
-        this._restoreKeybindings(NATIVE_KEYBINDINGS);
         this._overrideKeybindings();
     }
 
     disable() {
         this._popup?.destroy();
         this._popup = null;
-        this._restoreKeybindings(KEYBINDINGS.concat(NATIVE_KEYBINDINGS));
+        this._restoreKeybindings(KEYBINDINGS);
     }
 
     _overrideKeybindings() {

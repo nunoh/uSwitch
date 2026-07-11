@@ -37,6 +37,7 @@ enum App {
         print("   Cmd+Shift+Tab — backward")
         print("   Esc — cancel (swallowed, will not reach iTerm)")
         print("   Release Cmd — switch to selected window")
+        print("   Click a tile — switch to that window directly")
         print("   Quit via menu bar icon, or Ctrl+C\n")
 
         NSApplication.shared.setActivationPolicy(.accessory)
