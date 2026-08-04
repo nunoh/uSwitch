@@ -6,6 +6,10 @@ enum App {
     static func main() {
         print("uswitch v0.1 — installing event tap…")
 
+        // Set this before permission checks so a directly launched executable
+        // behaves like the LSUIElement app bundle from its very first frame.
+        NSApplication.shared.setActivationPolicy(.accessory)
+
         guard ensureAccessibility() else {
             print("⚠️  Grant Accessibility permission and re-run.")
             exit(1)
@@ -40,7 +44,6 @@ enum App {
         print("   Click a tile — switch to that window directly")
         print("   Quit via menu bar icon, or Ctrl+C\n")
 
-        NSApplication.shared.setActivationPolicy(.accessory)
         let menuBar = MenuBar()
         menuBar.install()
         NSApplication.shared.run()
