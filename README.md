@@ -63,3 +63,7 @@ See [PRD.md](PRD.md) for v1 scope. Out of scope for now: cross-Space windows, se
 ## About the name
 
 The `u` is `µ` — it's HyperSwitch in a smaller package.
+
+## License
+
+[MIT](LICENSE). Not affiliated with HyperSwitch or Bahoom.

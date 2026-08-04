@@ -3,4 +3,6 @@
 *.xcodeproj/
 Package.resolved
 .DS_Store
-/dist/*.zip
+dist/
+.claude/settings.local.json
+*.sync-conflict-*

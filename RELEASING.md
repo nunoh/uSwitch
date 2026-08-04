@@ -21,7 +21,7 @@ The `release` target uses `ditto -c -k --keepParent`, which preserves the bundle
 
 `scripts/setup-cert.sh` creates a self-signed cert (`uSwitch Self-Signed`) in the login keychain on first run. Local `dev`, `bundle`, and `install` builds use it so Accessibility / Screen Recording grants survive rebuilds.
 
-The downloadable release is **ad-hoc signed, not notarized**, matching the internal macOS release approach used by LaunchKnife. First-launch users need to approve it in System Settings → Privacy & Security → Open Anyway. README mentions this; revisit if/when notarization is set up.
+The downloadable release is **ad-hoc signed, not notarized**. First-launch users need to approve it in System Settings → Privacy & Security → Open Anyway. README mentions this; revisit if/when notarization is set up.
 
 ## Version surfaces
 
