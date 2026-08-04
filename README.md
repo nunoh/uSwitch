@@ -15,13 +15,13 @@ I used [HyperSwitch](https://bahoom.com/hyperswitch) for years and loved it, but
 
 ## Install
 
-Grab the latest `.app` from [Releases](https://github.com/nunoh/uSwitch/releases) and drop it into `/Applications`. Or [build from source](#build-from-source).
+Grab the latest Apple Silicon `.zip` from [Releases](https://github.com/nunoh/uSwitch/releases), unzip it, and drop `uSwitch.app` into `/Applications`. Or [build from source](#build-from-source).
 
-> macOS 13+. The app is ad-hoc signed; on first launch right-click → Open to bypass Gatekeeper.
+> macOS 13+. Release builds are ad-hoc signed and not notarized. After the first blocked launch, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, then confirm **Open**. Later launches work normally.
 
 **Managed Mac (corporate MDM):** right-click → Open may be blocked. Instead, copy the `.app` via AirDrop, USB, or any means other than a browser download, then strip the quarantine flag before opening:
 ```sh
-xattr -dr com.apple.quarantine ~/Applications/uSwitch.app
+xattr -dr com.apple.quarantine /Applications/uSwitch.app
 ```
 No admin rights needed. Gatekeeper only checks apps that carry the quarantine flag.
 
@@ -48,11 +48,13 @@ The menu bar icon has **About**, **Launch at Login**, and **Quit**. The About pa
 ## Build from source
 
 ```sh
-make dev      # debug build, signs ad-hoc, runs in foreground
+make dev      # debug build, signs with the local cert, runs in foreground
+make bundle   # release build into dist/uSwitch.app
+make release  # release build + versioned Apple Silicon zip
 make install  # release build into /Applications and launches
 ```
 
-Both targets handle the self-signed cert via `scripts/setup-cert.sh`. Bundle id is stable (`com.nh.uswitch`) so permission grants persist across rebuilds.
+Local `dev`, `bundle`, and `install` builds use the stable self-signed certificate from `scripts/setup-cert.sh`, so permission grants persist across local rebuilds. Downloadable release archives use an ad-hoc signature so they do not depend on a certificate that only exists on the maintainer's Mac.
 
 ## Roadmap
 

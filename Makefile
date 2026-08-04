@@ -1,10 +1,11 @@
-.PHONY: dev install uninstall reset-perms setup-cert cloc clean install-gnome-extension uninstall-gnome-extension
+.PHONY: dev build-app bundle release install uninstall reset-perms setup-cert cloc clean install-gnome-extension uninstall-gnome-extension
 
 DEV_APP      = dist/uswitch.app
 RELEASE_APP  = dist/uSwitch.app
+RELEASE_ZIP  = dist/uSwitch-v$(VERSION)-arm64.zip
 INSTALLED    = /Applications/uSwitch.app
 VERSION     ?= 0.2
-SIGN_ID      = uSwitch Self-Signed
+LOCAL_SIGN_ID = uSwitch Self-Signed
 GNOME_EXT_UUID = uswitch@nh.com
 GNOME_EXT_SRC  = gnome-extension/$(GNOME_EXT_UUID)
 GNOME_EXT_DST  = $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXT_UUID)
@@ -18,12 +19,12 @@ dev: setup-cert
 	@cp Resources/AppIcon.icns $(DEV_APP)/Contents/Resources/AppIcon.icns
 	@cp CHANGELOG.md $(DEV_APP)/Contents/Resources/CHANGELOG.md
 	@sed 's/__VERSION__/dev/g' Resources/Info.plist > $(DEV_APP)/Contents/Info.plist
-	@codesign --sign "$(SIGN_ID)" --force --identifier com.nh.uswitch $(DEV_APP) >/dev/null 2>&1
+	@codesign --sign "$(LOCAL_SIGN_ID)" --force --identifier com.nh.uswitch $(DEV_APP) >/dev/null 2>&1
 	@pkill -x uswitch 2>/dev/null || true
 	@echo "→ running $(DEV_APP)/Contents/MacOS/uswitch (Ctrl+C to quit)"
 	@$(DEV_APP)/Contents/MacOS/uswitch
 
-install: setup-cert
+build-app:
 	@swift build -c release
 	@rm -rf $(RELEASE_APP)
 	@mkdir -p $(RELEASE_APP)/Contents/MacOS $(RELEASE_APP)/Contents/Resources
@@ -31,7 +32,19 @@ install: setup-cert
 	@cp Resources/AppIcon.icns $(RELEASE_APP)/Contents/Resources/AppIcon.icns
 	@cp CHANGELOG.md $(RELEASE_APP)/Contents/Resources/CHANGELOG.md
 	@sed 's/__VERSION__/$(VERSION)/g' Resources/Info.plist > $(RELEASE_APP)/Contents/Info.plist
-	@codesign --sign "$(SIGN_ID)" --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
+	@file $(RELEASE_APP)/Contents/MacOS/uswitch | grep -q 'arm64'
+
+bundle: setup-cert build-app
+	@codesign --sign "$(LOCAL_SIGN_ID)" --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
+	@echo "✅ built $(RELEASE_APP) (v$(VERSION), Apple Silicon, local signature)"
+
+release: build-app
+	@codesign --sign - --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
+	@rm -f $(RELEASE_ZIP)
+	@ditto -c -k --keepParent $(RELEASE_APP) $(RELEASE_ZIP)
+	@echo "✅ release archive: $(RELEASE_ZIP) (ad-hoc signed)"
+
+install: bundle
 	@pkill -x uswitch 2>/dev/null || true
 	@rm -rf $(INSTALLED)
 	@cp -R $(RELEASE_APP) $(INSTALLED)
