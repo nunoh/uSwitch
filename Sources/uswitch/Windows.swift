@@ -31,9 +31,14 @@ enum Windows {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
             else { return nil }
             guard bounds.width > 50, bounds.height > 50 else { return nil }
+            // Agent apps (no Dock tile) are absent from the system switcher, so
+            // their helper windows must not appear here either.
+            guard NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular
+            else { return nil }
             let title = (dict[kCGWindowName as String] as? String) ?? ""
             return WindowInfo(id: id, pid: pid, title: title, appName: appName, bounds: bounds)
         }
+        .pruningNonStandardWindows()
         // CGWindowList reports windows across every display, plus stale ones
         // during/after a Space switch. Filter to windows on the current Space
         // of the display the overlay opened on (sticky/all-Spaces windows
@@ -94,6 +99,52 @@ enum Windows {
             "raise: focused and raised window id=\(window.id) " +
             "(focus=\(focusResult.rawValue), raise=\(raiseResult.rawValue))"
         )
+    }
+
+    // Subroles a real, switchable window can report. Electron and Tauri apps
+    // often label their main window AXDialog, so the list cannot be narrowed
+    // to AXStandardWindow alone. It does exclude AXUnknown and the floating
+    // subroles used by panels and heads-up overlays.
+    private static let switchableSubroles: Set<String> = [
+        kAXStandardWindowSubrole as String,
+        kAXDialogSubrole as String,
+    ]
+
+    // A layer-0 window is not necessarily switchable. Floating panels and
+    // overlays (ChatGPT's "Computer Use" controls, for example) look like
+    // ordinary windows to CGWindowList, but the owning app does not publish
+    // them as a window at all, and the system switcher skips them.
+    fileprivate static func isStandardWindow(_ window: WindowInfo, in axWindows: [AXUIElement]?) -> Bool {
+        // No usable accessibility answer: keep the window rather than hide a
+        // real one from an app that is busy or does not respond to AX.
+        guard let axWindows else { return true }
+        let matches = axWindows.filter { axMatches($0, window) }
+        guard !matches.isEmpty else { return false }
+        return matches.contains { subrole(for: $0).map(switchableSubroles.contains) ?? true }
+    }
+
+    fileprivate static func axWindows(for pid: pid_t) -> [AXUIElement]? {
+        let app = AXUIElementCreateApplication(pid)
+        // The switcher must open at once; do not block on a hung app.
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
+              let axWindows = ref as? [AXUIElement],
+              !axWindows.isEmpty
+        else { return nil }
+        return axWindows
+    }
+
+    private static func axMatches(_ axWin: AXUIElement, _ window: WindowInfo) -> Bool {
+        if let number = windowNumber(for: axWin) { return number == window.id }
+        return framesMatch(frame(for: axWin), window.bounds)
+    }
+
+    private static func subrole(for axWin: AXUIElement) -> String? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWin, kAXSubroleAttribute as CFString, &ref) == .success
+        else { return nil }
+        return ref as? String
     }
 
     private static func windowNumber(for axWin: AXUIElement) -> CGWindowID? {
@@ -165,5 +216,20 @@ enum Windows {
             abs(lhs.minY - rhs.minY) <= tolerance &&
             abs(lhs.width - rhs.width) <= tolerance &&
             abs(lhs.height - rhs.height) <= tolerance
+    }
+}
+
+private extension Array where Element == WindowInfo {
+    // One accessibility round trip per app, not per window.
+    func pruningNonStandardWindows() -> [WindowInfo] {
+        var axWindowsByPID: [pid_t: [AXUIElement]?] = [:]
+        return filter { window in
+            let axWindows = axWindowsByPID[window.pid] ?? {
+                let fetched = Windows.axWindows(for: window.pid)
+                axWindowsByPID[window.pid] = fetched
+                return fetched
+            }()
+            return Windows.isStandardWindow(window, in: axWindows)
+        }
     }
 }
