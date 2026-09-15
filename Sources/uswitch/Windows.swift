@@ -1,6 +1,11 @@
 import AppKit
 import ApplicationServices
 
+// Private HIServices call that returns the WindowServer id of an AX window.
+// Unlike the AXWindowNumber attribute, it works for every app, Chrome included.
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
+
 struct WindowInfo: Identifiable {
     let id: CGWindowID
     let pid: pid_t
@@ -87,8 +92,10 @@ enum Windows {
         }
 
         // Activating an app that is already frontmost does not select one of
-        // its other windows. Focus the specific AX window first, then raise it
-        // so switching within the same app is deterministic as well.
+        // its other windows. Make the specific AX window main and focused, then
+        // raise it so switching within the same app is deterministic as well.
+        // Chrome ignores AXFocusedWindow on the app unless the window is main.
+        let mainResult = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
         let focusResult = AXUIElementSetAttributeValue(
             app,
             kAXFocusedWindowAttribute as CFString,
@@ -97,7 +104,7 @@ enum Windows {
         let raiseResult = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
         print(
             "raise: focused and raised window id=\(window.id) " +
-            "(focus=\(focusResult.rawValue), raise=\(raiseResult.rawValue))"
+            "(main=\(mainResult.rawValue), focus=\(focusResult.rawValue), raise=\(raiseResult.rawValue))"
         )
     }
 
@@ -148,6 +155,10 @@ enum Windows {
     }
 
     private static func windowNumber(for axWin: AXUIElement) -> CGWindowID? {
+        var windowID: CGWindowID = 0
+        if _AXUIElementGetWindow(axWin, &windowID) == .success, windowID != 0 {
+            return windowID
+        }
         var numberRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(axWin, axWindowNumberAttribute, &numberRef) == .success,
            let number = numberRef as? NSNumber {
