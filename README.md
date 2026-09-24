@@ -66,6 +66,9 @@ macOS will prompt on first launch. Grant both in **System Settings → Privacy &
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle backward |
 | Release <kbd>Cmd</kbd> | Raise selected window |
 | <kbd>Esc</kbd> | Cancel (swallowed — won't trigger system shortcuts) |
+| <kbd>Cmd</kbd>+<kbd>Q</kbd> (while open) | Quit the selected app, stay in the switcher |
+| <kbd>Cmd</kbd>+<kbd>W</kbd> (while open) | Close the selected window, stay in the switcher |
+| <kbd>Cmd</kbd>+<kbd>M</kbd> (while open) | Minimize the selected window, stay in the switcher |
 
 The menu bar icon has **About**, **Launch at Login**, and **Quit**. The About panel links to this repo and shows the changelog.
 

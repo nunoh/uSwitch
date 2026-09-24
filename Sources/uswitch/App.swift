@@ -30,6 +30,9 @@ enum App {
         tap.onCycle   = { backward in MainActor.assumeIsolated { switcher.cycle(backward: backward) } }
         tap.onEscape  = { MainActor.assumeIsolated { switcher.close() } }
         tap.onCommit  = { MainActor.assumeIsolated { switcher.commit() } }
+        tap.onQuit    = { MainActor.assumeIsolated { switcher.quitSelected() } }
+        tap.onCloseWindow = { MainActor.assumeIsolated { switcher.closeSelectedWindow() } }
+        tap.onMinimize = { MainActor.assumeIsolated { switcher.minimizeSelected() } }
 
         guard tap.install() else {
             print("⚠️  Failed to install event tap. Try toggling Accessibility off/on for this binary.")
@@ -40,6 +43,9 @@ enum App {
         print("   Cmd+Tab — open / cycle forward")
         print("   Cmd+Shift+Tab — backward")
         print("   Esc — cancel (swallowed, will not reach iTerm)")
+        print("   Cmd+Q — quit the selected app, stay in the overlay")
+        print("   Cmd+W — close the selected window, stay in the overlay")
+        print("   Cmd+M — minimize the selected window, stay in the overlay")
         print("   Release Cmd — switch to selected window")
         print("   Click a tile — switch to that window directly")
         print("   Quit via menu bar icon, or Ctrl+C\n")

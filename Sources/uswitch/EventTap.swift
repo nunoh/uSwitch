@@ -3,12 +3,18 @@ import CoreGraphics
 
 private let kVK_Tab: CGKeyCode = 48
 private let kVK_Escape: CGKeyCode = 53
+private let kVK_Q: CGKeyCode = 12
+private let kVK_W: CGKeyCode = 13
+private let kVK_M: CGKeyCode = 46
 
 final class EventTap {
     var onTrigger: (() -> Void)?
     var onCycle: ((Bool) -> Void)?  // backward = true
     var onEscape: (() -> Void)?
     var onCommit: (() -> Void)?
+    var onQuit: (() -> Void)?
+    var onCloseWindow: (() -> Void)?
+    var onMinimize: (() -> Void)?
     var isActive: () -> Bool = { false }
 
     private var tap: CFMachPort?
@@ -47,6 +53,8 @@ final class EventTap {
         let keycode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let cmd = flags.contains(.maskCommand)
         let shift = flags.contains(.maskShift)
+        let option = flags.contains(.maskAlternate)
+        let control = flags.contains(.maskControl)
 
         if type == .keyDown {
             if keycode == kVK_Tab, cmd {
@@ -62,6 +70,27 @@ final class EventTap {
             if isActive(), keycode == kVK_Escape {
                 print("tap: escape")
                 onEscape?()
+                return nil
+            }
+            // While the overlay is up, Cmd+Q / Cmd+W / Cmd+M act on the selected
+            // tile instead of the frontmost app. Swallow them even with extra
+            // modifiers (Cmd+Shift+Q is logout) so nothing leaks through.
+            if isActive(), cmd, (keycode == kVK_Q || keycode == kVK_W || keycode == kVK_M) {
+                let plain = !shift && !option && !control
+                let repeating = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                if plain, !repeating {
+                    switch keycode {
+                    case kVK_Q:
+                        print("tap: quit selected app")
+                        onQuit?()
+                    case kVK_W:
+                        print("tap: close selected window")
+                        onCloseWindow?()
+                    default:
+                        print("tap: minimize selected window")
+                        onMinimize?()
+                    }
+                }
                 return nil
             }
         } else if type == .flagsChanged {

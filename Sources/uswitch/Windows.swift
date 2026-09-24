@@ -108,6 +108,74 @@ enum Windows {
         )
     }
 
+    // Quit the whole application that owns the window — the same request
+    // Cmd+Q makes, without activating the app first. Returns whether the quit
+    // request was delivered (not whether the app actually exited).
+    static func quit(_ window: WindowInfo) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: window.pid) else {
+            print("quit: no running app for pid \(window.pid)")
+            return false
+        }
+        let ok = app.terminate()
+        print("quit: terminate \(app.localizedName ?? "?") = \(ok)")
+        return ok
+    }
+
+    // Close a single window by pressing its accessibility close button. Doing
+    // it through AX leaves the frontmost app and the uSwitch overlay untouched,
+    // unlike sending Cmd+W, which only the active app would handle.
+    static func close(_ window: WindowInfo) -> Bool {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
+              let axWindows = ref as? [AXUIElement],
+              let axWin = matchingAXWindow(for: window, in: axWindows)
+        else {
+            print("close: no AX window matching WindowServer id \(window.id)")
+            return false
+        }
+        var buttonRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWin, kAXCloseButtonAttribute as CFString, &buttonRef) == .success,
+              let button = buttonRef,
+              CFGetTypeID(button) == AXUIElementGetTypeID()
+        else {
+            print("close: window id \(window.id) exposes no AX close button")
+            return false
+        }
+        let result = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        print("close: pressed close button for window id \(window.id) (result=\(result.rawValue))")
+        return result == .success
+    }
+
+    // Minimize a single window through AX, leaving the frontmost app and the
+    // uSwitch overlay where they are.
+    static func minimize(_ window: WindowInfo) -> Bool {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
+              let axWindows = ref as? [AXUIElement],
+              let axWin = matchingAXWindow(for: window, in: axWindows)
+        else {
+            print("minimize: no AX window matching WindowServer id \(window.id)")
+            return false
+        }
+        var buttonRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(axWin, kAXMinimizeButtonAttribute as CFString, &buttonRef) == .success,
+           let button = buttonRef,
+           CFGetTypeID(button) == AXUIElementGetTypeID() {
+            let result = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+            print("minimize: pressed minimize button for window id \(window.id) (result=\(result.rawValue))")
+            return result == .success
+        }
+        // Apps without a minimize button (or a proxy button) still honour the
+        // attribute directly.
+        let result = AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        print("minimize: set AXMinimized for window id \(window.id) (result=\(result.rawValue))")
+        return result == .success
+    }
+
     // Subroles a real, switchable window can report. Electron and Tauri apps
     // often label their main window AXDialog, so the list cannot be narrowed
     // to AXStandardWindow alone. It does exclude AXUnknown and the floating

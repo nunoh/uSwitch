@@ -15,6 +15,11 @@
 - Tab cycles forward (Cmd held).
 - Shift+Tab cycles backward.
 - Releasing Cmd raises the selected window.
+- Cmd+Q quits the selected app and keeps the overlay open.
+- Cmd+W closes the selected window and keeps the overlay open.
+- Cmd+M minimizes the selected window and keeps the overlay open.
+- After either action the window list is refreshed; if no windows remain the
+  overlay closes.
 
 ## Cancel
 - Escape dismisses without switching.

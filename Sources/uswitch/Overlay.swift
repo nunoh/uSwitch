@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 final class OverlayPanel: NSPanel {
@@ -38,6 +39,10 @@ private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
 // (tap Tab, release Cmd within this window) switches to the previous window
 // without ever flashing the UI.
 private let panelShowDelay: TimeInterval = 0.1
+
+// How long a tile takes to leave the overlay after quit / close / minimize.
+// Short on purpose: a gentle fade and shrink, not a production.
+private let tileRemovalDuration: TimeInterval = 0.16
 
 struct ThumbnailTile: View {
     let window: WindowInfo
@@ -134,6 +139,9 @@ struct OverlayView: View {
                                     selected: idx == selectedIndex,
                                     hovered: idx == hoveredIndex
                                 )
+                                .transition(
+                                    .scale(scale: 0.85).combined(with: .opacity)
+                                )
                                 .contentShape(Rectangle())
                                 .onTapGesture { onSelect(idx) }
                                 .onContinuousHover { phase in
@@ -176,6 +184,7 @@ final class Switcher {
     private var openMouseLocation: CGPoint = .zero
     private var hoverArmed = false
     private var activeSpaceObserver: NSObjectProtocol?
+    private var terminationObserver: NSObjectProtocol?
     private var active = false
     private let cache: ThumbnailCache
     var isOpen: Bool {
@@ -199,11 +208,26 @@ final class Switcher {
                 self?.handleActiveSpaceDidChange()
             }
         }
+        // A quit is asynchronous — the app may take a moment to exit. Refresh
+        // when it actually goes away so the overlay drops its tiles right then.
+        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.active else { return }
+                self.refreshWindows()
+            }
+        }
     }
 
     deinit {
         if let activeSpaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(activeSpaceObserver)
+        }
+        if let terminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver)
         }
     }
 
@@ -226,6 +250,12 @@ final class Switcher {
         print("panel shown in \(Int(Date().timeIntervalSince(t0) * 1000))ms (cached \(thumbnails.count)/\(windows.count))")
 
         // Fall back to one-shot capture for windows we've never seen.
+        captureMissingThumbnails()
+    }
+
+    // One-shot capture for windows missing from the cache. Invalidates any
+    // earlier run so a stale snapshot cannot land after the list changed.
+    private func captureMissingThumbnails() {
         let missing = windows.filter { thumbnails[$0.id] == nil }
         guard !missing.isEmpty else { return }
         openGeneration &+= 1
@@ -237,6 +267,89 @@ final class Switcher {
                     await self?.applyMissing(img, for: id, generation: myGen)
                 }
             }
+        }
+    }
+
+    // Re-query the Space and keep the overlay open. Used after quitting an app
+    // or closing a window so the user can line up the next one without the
+    // overlay disappearing. Selection stays at the same slot, which advances
+    // to the next tile when the previous one is gone.
+    private func refreshWindows() {
+        guard active, let screen = openScreen else { return }
+        windows = Windows.currentSpace(on: screen)
+        guard !windows.isEmpty else {
+            print("refresh: no windows left; closing overlay")
+            close()
+            return
+        }
+        thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
+            cache.image(for: w.id).map { (w.id, $0) }
+        })
+        openTilesPerRow = tilesPerRow(for: windows.count, on: screen)
+        selectedIndex = min(selectedIndex, windows.count - 1)
+        hoveredIndex = nil
+        render(animated: true)
+        captureMissingThumbnails()
+    }
+
+    // The tile under the selection, whether it was chosen with Tab or hover.
+    private var selectedTarget: WindowInfo? {
+        let index = hoveredIndex ?? selectedIndex
+        return windows.indices.contains(index) ? windows[index] : nil
+    }
+
+    func quitSelected() {
+        guard isOpen, let target = selectedTarget else { return }
+        print("quit: [\(target.pid)] \(target.appName) — \(target.title)")
+        guard Windows.quit(target) else { return }
+        // A quit takes everything the app owns, so hide all of its tiles.
+        hideOptimistically { $0.pid == target.pid }
+        // The termination observer confirms a real quit; this fallback puts the
+        // tiles back if the app ignored the request or is stuck on a prompt.
+        scheduleRefresh(after: 1.5)
+    }
+
+    func closeSelectedWindow() {
+        guard isOpen, let target = selectedTarget else { return }
+        print("close: [\(target.pid)] \(target.appName) — \(target.title)")
+        guard Windows.close(target) else { return }
+        hideOptimistically { $0.id == target.id }
+        // Closing is quick; re-check soon in case the app vetoed it.
+        scheduleRefresh(after: 0.35)
+    }
+
+    func minimizeSelected() {
+        guard isOpen, let target = selectedTarget else { return }
+        print("minimize: [\(target.pid)] \(target.appName) — \(target.title)")
+        guard Windows.minimize(target) else { return }
+        hideOptimistically { $0.id == target.id }
+        // The genie keeps the window "on screen" for a beat, so re-check after
+        // it settles in case the minimize was ignored.
+        scheduleRefresh(after: 0.6)
+    }
+
+    // Drop the matching tiles immediately so the action feels instant; the
+    // later re-query either confirms it or restores anything that came back.
+    private func hideOptimistically(_ shouldHide: (WindowInfo) -> Bool) {
+        let remaining = windows.filter { !shouldHide($0) }
+        guard remaining.count != windows.count else { return }
+        windows = remaining
+        guard !windows.isEmpty else {
+            close()
+            return
+        }
+        hoveredIndex = nil
+        selectedIndex = min(selectedIndex, windows.count - 1)
+        openTilesPerRow = tilesPerRow(for: windows.count, on: openScreen)
+        render(animated: true)
+    }
+
+    // Re-query after an optimistic change. Idempotent: if the window list
+    // already matches, the render is a no-op.
+    private func scheduleRefresh(after delay: TimeInterval) {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            self?.refreshWindows()
         }
     }
 
@@ -317,7 +430,7 @@ final class Switcher {
         return !current.isDisjoint(with: openSpaceIDs)
     }
 
-    private func render() {
+    private func render(animated: Bool = false) {
         let view = OverlayView(
             windows: windows,
             thumbnails: thumbnails,
@@ -334,8 +447,37 @@ final class Switcher {
             panel.contentView = h
             return h
         }()
-        h.rootView = view
-        panel.setContentSize(h.fittingSize)
+        // A tile leaving the list fades and shrinks instead of popping; the
+        // transaction also animates the remaining tiles into their new slots.
+        if animated {
+            withAnimation(.easeInOut(duration: tileRemovalDuration)) {
+                h.rootView = view
+            }
+        } else {
+            h.rootView = view
+        }
+        resizePanel(to: h.fittingSize, animated: animated)
+    }
+
+    // The panel is sized to its content, so a shrinking list would snap the
+    // window while the tiles are still animating. Grow/shrink it on the same
+    // curve so the whole overlay moves as one.
+    private func resizePanel(to size: CGSize, animated: Bool) {
+        guard animated, panel.isVisible, let screen = openScreen else {
+            panel.setContentSize(size)
+            return
+        }
+        let frame = NSRect(
+            x: screen.frame.midX - size.width / 2,
+            y: screen.frame.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = tileRemovalDuration
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     private func currentScreen() -> NSScreen? {
@@ -350,14 +492,17 @@ final class Switcher {
         return min(count, fit)
     }
 
-    private func positionAndShow() {
+    private func centerPanel() {
         guard let screen = openScreen else { return }
         let size = panel.frame.size
-        let origin = CGPoint(
+        panel.setFrameOrigin(CGPoint(
             x: screen.frame.midX - size.width / 2,
             y: screen.frame.midY - size.height / 2
-        )
-        panel.setFrameOrigin(origin)
+        ))
+    }
+
+    private func positionAndShow() {
+        centerPanel()
         // Force a fresh Space association on every show. AppKit can report an
         // ordered panel as visible after a Space change even when WindowServer
         // is still holding it on the previous Space; ordering out first plus
