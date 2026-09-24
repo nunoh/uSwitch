@@ -8,7 +8,9 @@ uSwitch is available as a native Swift app for macOS and a GNOME Shell extension
 
 - **Live thumbnails** of every window on the current Space or workspace.
 - **Every window gets its own tile**, including multiple windows from the same app.
-- **Fast switching** — a quick key flick switches without flashing the popup.
+- **Minimized windows stay visible** — a compact icon + title strip under the active tiles; shown but skipped by the Tab cycle.
+- **All-Spaces overview** — <kbd>Option</kbd>+<kbd>Tab</kbd> groups every window by Space (using WindowServer's per-Space lists, so no leftovers), with the current Space marked.
+- **Fast switching** — a quick key flick can switch without flashing the popup (optional flick delay, off by default).
 - **Small and native** — a Swift app on macOS and a GNOME Shell extension on Linux; no Electron.
 - **Doesn't leak Escape on macOS** — global Cmd+Esc bindings (iTerm, etc.) keep working.
 
@@ -62,15 +64,18 @@ macOS will prompt on first launch. Grant both in **System Settings → Privacy &
 
 | Key | Action |
 | --- | --- |
-| <kbd>Cmd</kbd>+<kbd>Tab</kbd> | Open switcher / cycle forward |
+| <kbd>Cmd</kbd>+<kbd>Tab</kbd> | Open switcher (current Space) / cycle forward |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle backward |
-| Release <kbd>Cmd</kbd> | Raise selected window |
+| <kbd>Option</kbd>+<kbd>Tab</kbd> | Open all-Spaces overview / cycle forward |
+| <kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Overview, cycle backward |
+| Release <kbd>Cmd</kbd> or <kbd>Option</kbd> | Raise selected window |
 | <kbd>Esc</kbd> | Cancel (swallowed — won't trigger system shortcuts) |
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> (while open) | Quit the selected app, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> (while open) | Close the selected window, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>M</kbd> (while open) | Minimize the selected window, stay in the switcher |
+| <kbd>Cmd</kbd>+<kbd>,</kbd> (while open) | Open Settings |
 
-The menu bar icon has **About**, **Launch at Login**, and **Quit**. The About panel links to this repo and shows the changelog.
+The menu bar icon has **Settings…**, **Launch at Login**, and **About** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, and the flick delay; it persists in UserDefaults and applies live.
 
 ### GNOME
 
@@ -102,7 +107,7 @@ For GNOME extension development and debugging notes, see [gnome-extension/DEVELO
 
 ## Roadmap
 
-See [PRD.md](PRD.md) for v1 scope. Out of scope for now: cross-Space windows, settings UI, custom hotkeys, per-app cycle.
+See [SPEC.md](SPEC.md) for current behaviour. Out of scope for now: settings UI, custom hotkeys, per-app cycle, moving windows between Spaces.
 
 ## About the name
 

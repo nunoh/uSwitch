@@ -12,6 +12,14 @@ struct WindowInfo: Identifiable {
     let title: String
     let appName: String
     let bounds: CGRect
+    // Minimized windows are still listed (the enumeration uses `.optionAll`),
+    // but render as a compact title strip instead of a live thumbnail.
+    var isMinimized: Bool = false
+    // False for windows on another Space (or otherwise not rendered). Their
+    // live thumbnail can't be captured, so only a cached one is shown.
+    var isOnScreen: Bool = true
+    // Home Space for the all-Spaces overview. nil in the current-Space list.
+    var spaceID: CGSSpaceID? = nil
     var icon: NSImage? { NSRunningApplication(processIdentifier: pid)?.icon }
 }
 
@@ -23,11 +31,106 @@ enum Windows {
     private static let axWindowNumberAttribute = "AXWindowNumber" as CFString
 
     static func currentSpace(on screen: NSScreen?) -> [WindowInfo] {
+        let descriptors = Spaces.orderedSpaces(for: screen)
+        let current = descriptors.filter(\.isCurrent)
+        let list = assemble(descriptors: current.isEmpty ? descriptors : current)
+        print("[windows] currentSpace count=\(list.count)")
+        for w in list {
+            print("  - \(w.appName) [\(w.id)] minimized=\(w.isMinimized) spaces=\(Spaces.spaceIDs(for: w.id).sorted())")
+        }
+        return list
+    }
+
+    /// Every switchable window across all Spaces of the display the overlay
+    /// opens on, tagged with its home Space. Ordering is front-to-back as
+    /// reported by WindowServer.
+    static func allSpaces(on screen: NSScreen?) -> [WindowInfo] {
+        var descriptors = Spaces.orderedSpaces(for: screen)
+        // Current Space first so sticky windows land there.
+        if let idx = descriptors.firstIndex(where: { $0.isCurrent }) {
+            descriptors.insert(descriptors.remove(at: idx), at: 0)
+        }
+        let list = assemble(descriptors: descriptors)
+        print("[windows] allSpaces spaces=\(descriptors.map { "\($0.label)=\($0.id)" }) count=\(list.count)")
+        return list
+    }
+
+    // Membership is decided by WindowServer's own per-Space window lists, not by
+    // filtering `CGWindowListCopyWindowInfo(.optionAll)`. `.optionAll` keeps a
+    // pile of leftover surfaces an app no longer reports (Calendar alone leaves
+    // a dozen); the per-Space list does not. `candidates()` only supplies the
+    // metadata (title, bounds, on-screen) for ids that survive.
+    private static func assemble(descriptors: [Spaces.SpaceDescriptor]) -> [WindowInfo] {
+        guard !descriptors.isEmpty else { return [] }
+        var spaceFor: [CGWindowID: CGSSpaceID] = [:]
+        for descriptor in descriptors {
+            for id in Spaces.windowIDs(onSpace: descriptor.id) where spaceFor[id] == nil {
+                spaceFor[id] = descriptor.id
+            }
+        }
+        let all = candidates()
+        let tagged: [WindowInfo]
+        if spaceFor.isEmpty {
+            // WindowServer's per-Space list came back empty (unexpected). Fall
+            // back to matching each window's reported Space so the switcher
+            // still works rather than showing nothing.
+            print("[windows] per-Space lists unavailable; falling back to spaceIDs")
+            tagged = all.compactMap { window -> WindowInfo? in
+                let ids = Spaces.spaceIDs(for: window.id)
+                guard let match = descriptors.first(where: { ids.contains($0.id) }) else { return nil }
+                var tagged = window
+                tagged.spaceID = match.id
+                return tagged
+            }
+        } else {
+            tagged = all.compactMap { window -> WindowInfo? in
+                guard let space = spaceFor[window.id] else { return nil }
+                var tagged = window
+                tagged.spaceID = space
+                return tagged
+            }
+        }
+        return orderFrontToBack(tagged).pruningNonStandardWindows()
+    }
+
+    // `CGWindowListCopyWindowInfo(.optionAll)` does not preserve z-order — it can
+    // list a minimized window ahead of the focused one — so the "previous
+    // window" target has to come from `.optionOnScreenOnly`, which is guaranteed
+    // front-to-back. Windows that are not on screen keep their relative order
+    // after the on-screen ones.
+    private static func orderFrontToBack(_ list: [WindowInfo]) -> [WindowInfo] {
+        let ranks = onScreenRanks()
+        return list.enumerated()
+            .sorted { lhs, rhs in
+                let l = ranks[lhs.element.id] ?? Int.max
+                let r = ranks[rhs.element.id] ?? Int.max
+                return l == r ? lhs.offset < rhs.offset : l < r
+            }
+            .map(\.element)
+    }
+
+    private static func onScreenRanks() -> [CGWindowID: Int] {
         let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let raw = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
+            return [:]
+        }
+        var ranks: [CGWindowID: Int] = [:]
+        for (index, dict) in raw.enumerated() {
+            if let id = dict[kCGWindowNumber as String] as? CGWindowID {
+                ranks[id] = index
+            }
+        }
+        return ranks
+    }
+
+    // Metadata for every layer-0 window. Uses `.optionAll` so minimized windows
+    // and windows on other Spaces are included.
+    private static func candidates() -> [WindowInfo] {
+        let opts: CGWindowListOption = [.optionAll, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
-        let candidates: [WindowInfo] = raw.compactMap { dict in
+        return raw.compactMap { dict -> WindowInfo? in
             guard let layer = dict[kCGWindowLayer as String] as? Int, layer == 0,
                   let pid = dict[kCGWindowOwnerPID as String] as? pid_t,
                   let id = dict[kCGWindowNumber as String] as? CGWindowID,
@@ -36,25 +139,24 @@ enum Windows {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
             else { return nil }
             guard bounds.width > 50, bounds.height > 50 else { return nil }
+            // Fully transparent windows are ghosts; skip them.
+            if let alpha = dict[kCGWindowAlpha as String] as? Double, alpha <= 0.01 { return nil }
+            guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
             // Agent apps (no Dock tile) are absent from the system switcher, so
-            // their helper windows must not appear here either.
-            guard NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular
-            else { return nil }
+            // their helper windows must not appear here either. Hidden apps are
+            // likewise absent — `.optionAll` would otherwise surface them.
+            guard app.activationPolicy == .regular, !app.isHidden else { return nil }
             let title = (dict[kCGWindowName as String] as? String) ?? ""
-            return WindowInfo(id: id, pid: pid, title: title, appName: appName, bounds: bounds)
+            let onScreen = (dict[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? true
+            return WindowInfo(
+                id: id,
+                pid: pid,
+                title: title,
+                appName: appName,
+                bounds: bounds,
+                isOnScreen: onScreen
+            )
         }
-        .pruningNonStandardWindows()
-        // CGWindowList reports windows across every display, plus stale ones
-        // during/after a Space switch. Filter to windows on the current Space
-        // of the display the overlay opened on (sticky/all-Spaces windows
-        // belong to every Space, so they're kept too).
-        let destination = Spaces.currentSpaceIDs(for: screen)
-        print("[windows] currentSpace destination=\(destination) candidates=\(candidates.count)")
-        for w in candidates {
-            print("  - \(w.appName) [\(w.id)] spaces=\(Spaces.spaceIDs(for: w.id))")
-        }
-        guard !destination.isEmpty else { return candidates }
-        return candidates.filter { !Spaces.spaceIDs(for: $0.id).isDisjoint(with: destination) }
     }
 
     static func raise(_ window: WindowInfo) {
@@ -89,6 +191,13 @@ enum Windows {
         guard let axWin else {
             print("raise: could not find AX window matching WindowServer id \(window.id)")
             return
+        }
+
+        // A minimized window must be restored before it can be focused; while
+        // it sits in the Dock, kAXMain and the raise action are no-ops.
+        if window.isMinimized {
+            let result = AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            print("raise: unminimized window id=\(window.id) (result=\(result.rawValue))")
         }
 
         // Activating an app that is already frontmost does not select one of
@@ -188,26 +297,58 @@ enum Windows {
     // A layer-0 window is not necessarily switchable. Floating panels and
     // overlays (ChatGPT's "Computer Use" controls, for example) look like
     // ordinary windows to CGWindowList, but the owning app does not publish
-    // them as a window at all, and the system switcher skips them.
-    fileprivate static func isStandardWindow(_ window: WindowInfo, in axWindows: [AXUIElement]?) -> Bool {
-        // No usable accessibility answer: keep the window rather than hide a
-        // real one from an app that is busy or does not respond to AX.
-        guard let axWindows else { return true }
-        let matches = axWindows.filter { axMatches($0, window) }
-        guard !matches.isEmpty else { return false }
-        return matches.contains { subrole(for: $0).map(switchableSubroles.contains) ?? true }
+    // them as a window at all, and the system switcher skips them. The same
+    // accessibility round trip tells us whether the window is minimized, so the
+    // two are classified together.
+    fileprivate static func classify(
+        _ window: WindowInfo,
+        in axWindows: Windows.AXWindowList
+    ) -> (standard: Bool, minimized: Bool) {
+        switch axWindows {
+        case .unavailable:
+            // No accessibility answer: keep the window. Space membership has
+            // already vouched for it, and its minimized state is unknown.
+            return (true, false)
+        case .available(let list):
+            let matches = list.filter { axMatches($0, window) }
+            guard !matches.isEmpty else {
+                // The app did not report this window. Accessibility only
+                // exposes windows on the active Space, so this is a window on
+                // another Space, not a fake one. Keep it, minimized unknown.
+                return (true, false)
+            }
+            guard matches.contains(where: { subrole(for: $0).map(switchableSubroles.contains) ?? true })
+            else { return (false, false) }
+            let minimized = matches.contains(where: isMinimized)
+            return (true, minimized)
+        }
     }
 
-    fileprivate static func axWindows(for pid: pid_t) -> [AXUIElement]? {
+    private static func isMinimized(_ axWin: AXUIElement) -> Bool {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWin, kAXMinimizedAttribute as CFString, &ref) == .success,
+              let number = ref as? NSNumber
+        else { return false }
+        return number.boolValue
+    }
+
+    // Distinguishes "the app answered and has no windows" (a WindowServer
+    // leftover, not a real window) from "the app did not answer at all" (keep
+    // its windows rather than hide a real one from a busy app).
+    enum AXWindowList {
+        case unavailable
+        case available([AXUIElement])
+    }
+
+    static func axWindowList(for pid: pid_t) -> AXWindowList {
         let app = AXUIElementCreateApplication(pid)
         // The switcher must open at once; do not block on a hung app.
         AXUIElementSetMessagingTimeout(app, 0.25)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
-              let axWindows = ref as? [AXUIElement],
-              !axWindows.isEmpty
-        else { return nil }
-        return axWindows
+              let axWindows = ref as? [AXUIElement]
+        else { return .unavailable }
+        return .available(axWindows)
     }
 
     private static func axMatches(_ axWin: AXUIElement, _ window: WindowInfo) -> Bool {
@@ -301,14 +442,18 @@ enum Windows {
 private extension Array where Element == WindowInfo {
     // One accessibility round trip per app, not per window.
     func pruningNonStandardWindows() -> [WindowInfo] {
-        var axWindowsByPID: [pid_t: [AXUIElement]?] = [:]
-        return filter { window in
+        var axWindowsByPID: [pid_t: Windows.AXWindowList] = [:]
+        return compactMap { window in
             let axWindows = axWindowsByPID[window.pid] ?? {
-                let fetched = Windows.axWindows(for: window.pid)
+                let fetched = Windows.axWindowList(for: window.pid)
                 axWindowsByPID[window.pid] = fetched
                 return fetched
             }()
-            return Windows.isStandardWindow(window, in: axWindows)
+            let verdict = Windows.classify(window, in: axWindows)
+            guard verdict.standard else { return nil }
+            var pruned = window
+            pruned.isMinimized = verdict.minimized
+            return pruned
         }
     }
 }

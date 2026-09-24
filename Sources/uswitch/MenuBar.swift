@@ -6,6 +6,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private var item: NSStatusItem?
     private var launchAtLoginItem: NSMenuItem?
     private let about = AboutWindow()
+    private let settings = SettingsWindow()
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -17,6 +18,17 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         let menu = NSMenu()
         menu.delegate = self
+
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(settingsMenuItem),
+            keyEquivalent: ","
+        )
+        settingsItem.keyEquivalentModifierMask = [.command]
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
 
         let launchAtLogin = NSMenuItem(
             title: "Launch at Login",
@@ -49,6 +61,15 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     @objc private func showAbout() {
         about.show()
+    }
+
+    @objc private func settingsMenuItem() {
+        settings.show()
+    }
+
+    // Also reachable from the switcher (Cmd+, while the overlay is open).
+    func showSettings() {
+        settings.show()
     }
 
     func menuWillOpen(_ menu: NSMenu) {

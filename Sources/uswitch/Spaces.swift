@@ -83,6 +83,34 @@ enum Spaces {
         return Set(raw.map { $0.uint64Value })
     }
 
+    // WindowServer's own window list for a Space. Unlike filtering
+    // CGWindowListCopyWindowInfo(.optionAll) by Space, this does not include
+    // leftover surfaces the owning app no longer reports.
+    @_silgen_name("CGSCopyWindowsWithOptionsAndTags")
+    private static func CGSCopyWindowsWithOptionsAndTags(
+        _ cid: CGSConnectionID,
+        _ owner: UInt32,
+        _ spaces: CFArray,
+        _ options: Int,
+        _ setTags: UnsafeMutablePointer<Int>,
+        _ clearTags: UnsafeMutablePointer<Int>
+    ) -> CFArray?
+
+    static func windowIDs(onSpace id: CGSSpaceID) -> [CGWindowID] {
+        var setTags = 0
+        var clearTags = 0
+        let spaces = [id] as CFArray
+        guard let raw = CGSCopyWindowsWithOptionsAndTags(
+            CGSMainConnectionID(),
+            0,
+            spaces,
+            7,
+            &setTags,
+            &clearTags
+        ) as? [NSNumber] else { return [] }
+        return raw.map { $0.uint32Value }
+    }
+
     /// Current-Space IDs to filter the switcher by: only the Space of the
     /// display the overlay is showing on, so windows living on another
     /// monitor's current Space don't leak into the list. Falls back to every
@@ -117,5 +145,58 @@ enum Spaces {
               let uuid = CGDisplayCreateUUIDFromDisplayID(CGDirectDisplayID(num.uint32Value))?.takeRetainedValue()
         else { return nil }
         return CFUUIDCreateString(nil, uuid) as String?
+    }
+
+    struct SpaceDescriptor: Identifiable {
+        let id: CGSSpaceID
+        let label: String
+        let isCurrent: Bool
+        let displayIdentifier: String?
+    }
+
+    /// The ordered Spaces of the display the overlay opens on, with labels for
+    /// the all-Spaces overview. Fullscreen Spaces get their own label rather
+    /// than consuming a "Space N" number. Falls back to every display's Spaces
+    /// when the display can't be matched.
+    static func orderedSpaces(for screen: NSScreen?) -> [SpaceDescriptor] {
+        let cid = CGSMainConnectionID()
+        guard let displays = CGSCopyManagedDisplaySpaces(cid) as? [[String: Any]] else { return [] }
+
+        let scoped: [[String: Any]]
+        if let wantID = screen.flatMap(displayIdentifier(for:)),
+           let match = displays.first(where: { ($0["Display Identifier"] as? String) == wantID }) {
+            scoped = [match]
+        } else {
+            scoped = displays
+        }
+
+        var result: [SpaceDescriptor] = []
+        for display in scoped {
+            let displayID = display["Display Identifier"] as? String
+            let currentID = currentSpaceID(of: display)
+            let spaces = display["Spaces"] as? [[String: Any]] ?? []
+            var normalIndex = 0
+            for space in spaces {
+                guard let id = (space["id64"] as? NSNumber)?.uint64Value
+                        ?? (space["ManagedSpaceID"] as? NSNumber)?.uint64Value
+                else { continue }
+                let type = (space["type"] as? NSNumber)?.intValue ?? 0
+                let label: String
+                if type == 4 {
+                    let name = (space["name"] as? String) ?? ""
+                    label = name.isEmpty ? "Fullscreen" : name
+                } else {
+                    normalIndex += 1
+                    label = "Space \(normalIndex)"
+                }
+                result.append(SpaceDescriptor(
+                    id: id,
+                    label: label,
+                    isCurrent: id == currentID,
+                    displayIdentifier: displayID
+                ))
+            }
+        }
+        return result
     }
 }

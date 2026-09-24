@@ -16,7 +16,7 @@ private final class CloseableWindow: NSWindow {
 }
 
 @MainActor
-private func presentSingleton<V: View>(
+func presentSingleton<V: View>(
     _ window: inout NSWindow?,
     title: String,
     size: NSSize,
