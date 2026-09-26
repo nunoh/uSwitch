@@ -146,19 +146,29 @@ private func parseChangelog() -> [Release] {
     for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = String(raw)
         if line.hasPrefix("## ") {
-            releases.append(Release(heading: String(line.dropFirst(3)), sections: []))
+            releases.append(Release(heading: plainText(line.dropFirst(3)), sections: []))
         } else if line.hasPrefix("### ") {
             guard !releases.isEmpty else { continue }
             releases[releases.count - 1].sections.append(
                 Section(title: String(line.dropFirst(4)), bullets: [])
             )
-        } else if line.hasPrefix("- "),
+        } else if line.hasPrefix("- ") || line.hasPrefix("* "),
                   let r = releases.indices.last,
                   let s = releases[r].sections.indices.last {
-            releases[r].sections[s].bullets.append(String(line.dropFirst(2)))
+            releases[r].sections[s].bullets.append(plainText(line.dropFirst(2)))
         }
     }
     return releases
+}
+
+// release-please writes Markdown links in headings ("[0.3.0](…) (date)") and
+// trailing commit links in bullets ("… ([abc1234](…))"). Keep the link text,
+// drop commit references and bold markers.
+private func plainText(_ line: Substring) -> String {
+    String(line)
+        .replacingOccurrences(of: #"\s*\(\[[0-9a-f]{7,40}\]\([^)]*\)\)"#, with: "", options: .regularExpression)
+        .replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+        .replacingOccurrences(of: "**", with: "")
 }
 
 private struct ChangelogView: View {
