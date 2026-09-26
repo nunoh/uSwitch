@@ -41,11 +41,12 @@ bundle: setup-cert build-app
 	@codesign --sign "$(LOCAL_SIGN_ID)" --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
 	@echo "✅ built $(RELEASE_APP) (v$(VERSION), Apple Silicon, local signature)"
 
-release: build-app
-	@codesign --sign - --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
+# Releases carry the same self-signed certificate as local builds (CI imports
+# it from secrets), so Accessibility / Screen Recording grants survive updates.
+release: bundle
 	@rm -f $(RELEASE_ZIP)
 	@ditto -c -k --keepParent $(RELEASE_APP) $(RELEASE_ZIP)
-	@echo "✅ release archive: $(RELEASE_ZIP) (ad-hoc signed)"
+	@echo "✅ release archive: $(RELEASE_ZIP) ($(LOCAL_SIGN_ID))"
 
 dmg: release
 	@rm -rf $(DMG_STAGING) $(RELEASE_DMG)
@@ -54,7 +55,7 @@ dmg: release
 	@ln -s /Applications $(DMG_STAGING)/Applications
 	@hdiutil create -volname "uSwitch" -srcfolder $(DMG_STAGING) -format UDZO -ov $(RELEASE_DMG) >/dev/null
 	@rm -rf $(DMG_STAGING)
-	@echo "✅ disk image: $(RELEASE_DMG) (ad-hoc signed)"
+	@echo "✅ disk image: $(RELEASE_DMG) ($(LOCAL_SIGN_ID))"
 
 install: bundle
 	@pkill -x uswitch 2>/dev/null || true

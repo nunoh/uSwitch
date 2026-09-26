@@ -44,13 +44,43 @@ jobs:
     env:
       TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
       GH_TOKEN: ${{ github.token }}
+      # SHA-1 of the "uSwitch Self-Signed" certificate. macOS ties permission
+      # grants to it, so every release must be signed with this one.
+      SIGN_CERT_SHA1: bc502e940095ae5c30ff45f53bee3b6f97953a39
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
 
+      - name: Import the signing certificate
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_SIGN_P12" ]; then
+            echo "::error::MACOS_SIGN_P12 is not set; see RELEASING.md#signing"
+            exit 1
+          fi
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          kc_password=$(openssl rand -hex 16)
+          security create-keychain -p "$kc_password" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kc_password" "$kc"
+          echo "$MACOS_SIGN_P12" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security import "$RUNNER_TEMP/sign.p12" -k "$kc" -P "$MACOS_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/sign.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_password" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+
       - name: Build DMG and zip
         run: make dmg VERSION="${TAG#v}"
+
+      # setup-cert.sh would mint a new certificate if the import failed; a
+      # release signed with it would reset every user's permissions.
+      - name: Check the signature
+        run: |
+          codesign -dr - dist/uSwitch.app 2>&1 | tee /dev/stderr \
+            | grep -qi "certificate leaf = H\"$SIGN_CERT_SHA1\""
 
       - name: Checksums
         working-directory: dist
