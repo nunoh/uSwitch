@@ -16,10 +16,11 @@ enum App {
         menuBar.install()
         UpdateChecker.shared.start()
 
+        setUp()
         // Without Accessibility the event tap cannot be installed; the setup
-        // window starts the switcher the moment it is granted, no relaunch.
+        // window installs it the moment it is granted, no relaunch.
         if Permissions.accessibility {
-            _ = start()
+            _ = installTap()
         } else {
             print("⚠️  Accessibility not granted — waiting in the setup window.")
         }
@@ -27,8 +28,9 @@ enum App {
             if !Permissions.screenRecording {
                 print("⚠️  Screen Recording not granted — thumbnails will be blank.")
             }
-            permissionsWindow.show(onAccessibilityGranted: { start() })
+            showSetup()
         }
+        startTrustWatchdog()
 
         NSApplication.shared.run()
     }
@@ -38,13 +40,11 @@ enum App {
     private static var tap: EventTap?
     private static var switcher: Switcher?
     private static var cancellables = Set<AnyCancellable>()
+    private static var watchdog: Timer?
 
-    // Build the switcher and install the event tap. Returns false when the tap
-    // cannot be installed yet (Accessibility missing or not applied).
-    private static func start() -> Bool {
-        guard tap == nil else { return true }
-        print("uswitch — installing event tap…")
-
+    // Build the switcher and its event tap once. The tap is installed
+    // separately, and again after Accessibility comes back.
+    private static func setUp() {
         let settings = Settings.shared
         let menuBar = self.menuBar
         let cache = ThumbnailCache()
@@ -68,6 +68,7 @@ enum App {
             menuBar.showSettings()
         } }
         tap.isSuspended = { HotkeyRecorder.isRecording }
+        tap.onTrustRevoked = { MainActor.assumeIsolated { trustRevoked() } }
 
         // Keep the tap's shortcuts in sync with settings, live.
         tap.primaryHotkey = settings.primaryHotkey
@@ -75,14 +76,22 @@ enum App {
         settings.$primaryHotkey.sink { tap.primaryHotkey = $0 }.store(in: &cancellables)
         settings.$overviewHotkey.sink { tap.overviewHotkey = $0 }.store(in: &cancellables)
 
-        guard tap.install() else {
-            print("⚠️  Failed to install event tap. Try toggling Accessibility off/on for this binary.")
-            cancellables.removeAll()
-            return false
-        }
         self.tap = tap
         self.switcher = switcher
+    }
 
+    // Returns false when the tap cannot be installed yet (Accessibility
+    // missing or not applied to this process).
+    private static func installTap() -> Bool {
+        guard let tap else { return false }
+        if tap.isInstalled { return true }
+        print("uswitch — installing event tap…")
+        guard tap.install() else {
+            print("⚠️  Failed to install event tap. Try toggling Accessibility off/on for this binary.")
+            return false
+        }
+
+        let settings = Settings.shared
         print("✅ Ready.")
         print("   \(settings.primaryHotkey.displayString) — open / cycle forward")
         print("   +Shift — backward")
@@ -94,5 +103,28 @@ enum App {
         print("   Release the modifier — switch to the selected window")
         print("   Settings — menu bar icon → Settings…\n")
         return true
+    }
+
+    private static func showSetup() {
+        permissionsWindow.show(onAccessibilityGranted: { installTap() })
+    }
+
+    // A live event tap without Accessibility can freeze all input (seen when
+    // `tccutil reset` runs under a running uSwitch), so remove it as soon as
+    // the grant disappears instead of waiting for the tap to time out.
+    private static func startTrustWatchdog() {
+        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard tap?.isInstalled == true, !AXIsProcessTrusted() else { return }
+                print("⚠️  Accessibility revoked — removing the event tap.")
+                trustRevoked()
+            }
+        }
+    }
+
+    private static func trustRevoked() {
+        tap?.uninstall()
+        switcher?.close()
+        showSetup()
     }
 }
