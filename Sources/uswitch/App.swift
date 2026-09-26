@@ -30,7 +30,7 @@ enum App {
             }
             showSetup()
         }
-        startTrustWatchdog()
+        observeTrustChanges()
 
         NSApplication.shared.run()
     }
@@ -40,7 +40,7 @@ enum App {
     private static var tap: EventTap?
     private static var switcher: Switcher?
     private static var cancellables = Set<AnyCancellable>()
-    private static var watchdog: Timer?
+    private static var trustObserver: NSObjectProtocol?
 
     // Build the switcher and its event tap once. The tap is installed
     // separately, and again after Accessibility comes back.
@@ -112,12 +112,22 @@ enum App {
     // A live event tap without Accessibility can freeze all input (seen when
     // `tccutil reset` runs under a running uSwitch), so remove it as soon as
     // the grant disappears instead of waiting for the tap to time out.
-    private static func startTrustWatchdog() {
-        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            MainActor.assumeIsolated {
-                guard tap?.isInstalled == true, !AXIsProcessTrusted() else { return }
-                print("⚠️  Accessibility revoked — removing the event tap.")
-                trustRevoked()
+    // macOS posts this (undocumented) notification whenever any app's
+    // Accessibility grant changes; if it ever stops, the tap still removes
+    // itself when macOS disables it (EventTap.handle).
+    private static func observeTrustChanges() {
+        trustObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.accessibility.api"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            // The trust check can lag the notification briefly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                MainActor.assumeIsolated {
+                    guard tap?.isInstalled == true, !AXIsProcessTrusted() else { return }
+                    print("⚠️  Accessibility revoked — removing the event tap.")
+                    trustRevoked()
+                }
             }
         }
     }
