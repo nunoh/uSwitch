@@ -24,7 +24,7 @@ uSwitch targets the narrow gap between them: HyperSwitch's switching model in a 
 
 ### macOS
 
-Grab the latest Apple Silicon `.zip` from [Releases](https://github.com/nunoh/uSwitch/releases), unzip it, and drop `uSwitch.app` into `/Applications`. Or [build from source](#build-from-source).
+Grab the latest Apple Silicon `.dmg` from [Releases](https://github.com/nunoh/uSwitch/releases), open it, and drag `uSwitch.app` into `/Applications`. A `.zip` is attached too. Or [build from source](#build-from-source).
 
 > macOS 13+. Release builds are ad-hoc signed and not notarized. After the first blocked launch, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, then confirm **Open**. Later launches work normally.
 
@@ -97,6 +97,7 @@ The extension replaces GNOME's application and window switchers so that every wi
 make dev      # debug build, signs with the local cert, runs in foreground
 make bundle   # release build into dist/uSwitch.app
 make release  # release build + versioned Apple Silicon zip
+make dmg      # release build + versioned Apple Silicon zip and dmg
 make install  # release build into /Applications and launches
 ```
 
