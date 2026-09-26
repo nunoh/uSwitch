@@ -72,13 +72,7 @@ CI imports the cert from two secrets and fails the release if the app is not sig
 | `MACOS_SIGN_P12` | The cert and private key as a base64 `.p12` |
 | `MACOS_SIGN_P12_PASSWORD` | The `.p12` password |
 
-To set them: Keychain Access → login → My Certificates → right-click **uSwitch Self-Signed** → Export… → `uswitch-sign.p12` with a password. Then:
-
-```sh
-base64 -i uswitch-sign.p12 | gh secret set MACOS_SIGN_P12
-gh secret set MACOS_SIGN_P12_PASSWORD
-rm uswitch-sign.p12
-```
+To set them, run `scripts/export-signing-secret.sh`. Keychain Access cannot export the cert as `.p12`, because `setup-cert.sh` imports the key and cert separately. The script exports the keychain identities to a temp dir, keeps the key that matches the cert, rebuilds a `.p12` with just that pair, checks that it imports, and sets both secrets. macOS asks to allow each key export.
 
 Keep the cert: a new one changes the signing identity, and every user must grant the permissions again. If you lose it, run `make reset-perms` locally after installing the first build with the new one, and update `SIGN_CERT_SHA1` in `release.yml`.
 
