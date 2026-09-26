@@ -37,6 +37,10 @@ jobs:
       (needs.release-please.outputs.release_created == 'true' ||
        github.event_name == 'workflow_dispatch')
     runs-on: macos-14
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
       GH_TOKEN: ${{ github.token }}
@@ -48,5 +52,17 @@ jobs:
       - name: Build DMG and zip
         run: make dmg VERSION="${TAG#v}"
 
+      - name: Checksums
+        working-directory: dist
+        run: shasum -a 256 uSwitch-*.dmg uSwitch-*.zip | tee SHA256SUMS.txt
+
+      # Lets users check that CI built the files from this repo:
+      # gh attestation verify <file> --repo nunoh/uSwitch
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/uSwitch-*.dmg
+            dist/uSwitch-*.zip
+
       - name: Upload to the release
-        run: gh release upload "$TAG" dist/uSwitch-*.dmg dist/uSwitch-*.zip --clobber
+        run: gh release upload "$TAG" dist/uSwitch-*.dmg dist/uSwitch-*.zip dist/SHA256SUMS.txt --clobber
