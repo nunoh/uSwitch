@@ -31,6 +31,10 @@ The release PR is a normal PR on the `release-please--branches--main--components
 
 To force a version, add `Release-As: 1.0.0` to the body of a commit merged to `main`.
 
+## Homebrew
+
+The cask lives in [nunoh/homebrew-tap](https://github.com/nunoh/homebrew-tap). Its `Update uSwitch` workflow runs hourly, reads the latest release's `SHA256SUMS.txt`, and commits the new version. Run it from that repo's Actions tab to publish at once. Nothing in this repo needs a token for it.
+
 ## Rebuilding assets
 
 If the asset build fails after the release exists, run the `Release` workflow manually (Actions → Release → Run workflow) with the tag, e.g. `v0.3.0`. It rebuilds and re-uploads the DMG and zip.
