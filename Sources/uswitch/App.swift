@@ -10,24 +10,43 @@ enum App {
             exit(0)
         }
 
-        print("uswitch v0.1 — installing event tap…")
-
         // Set this before permission checks so a directly launched executable
         // behaves like the LSUIElement app bundle from its very first frame.
         NSApplication.shared.setActivationPolicy(.accessory)
+        menuBar.install()
+        UpdateChecker.shared.start()
 
-        guard ensureAccessibility() else {
-            print("⚠️  Grant Accessibility permission and re-run.")
-            exit(1)
+        // Without Accessibility the event tap cannot be installed; the setup
+        // window starts the switcher the moment it is granted, no relaunch.
+        if Permissions.accessibility {
+            _ = start()
+        } else {
+            print("⚠️  Accessibility not granted — waiting in the setup window.")
+        }
+        if !Permissions.accessibility || !Permissions.screenRecording {
+            if !Permissions.screenRecording {
+                print("⚠️  Screen Recording not granted — thumbnails will be blank.")
+            }
+            permissionsWindow.show(onAccessibilityGranted: { start() })
         }
 
-        if !ensureScreenRecording() {
-            print("⚠️  Screen Recording permission not granted — thumbnails will be blank.")
-            print("    Grant it in System Settings → Privacy & Security → Screen Recording, then re-run.")
-        }
+        NSApplication.shared.run()
+    }
+
+    private static let menuBar = MenuBar()
+    private static let permissionsWindow = PermissionsWindow()
+    private static var tap: EventTap?
+    private static var switcher: Switcher?
+    private static var cancellables = Set<AnyCancellable>()
+
+    // Build the switcher and install the event tap. Returns false when the tap
+    // cannot be installed yet (Accessibility missing or not applied).
+    private static func start() -> Bool {
+        guard tap == nil else { return true }
+        print("uswitch — installing event tap…")
 
         let settings = Settings.shared
-        let menuBar = MenuBar()
+        let menuBar = self.menuBar
         let cache = ThumbnailCache()
         cache.startObserving()
         Spaces.startObserving()
@@ -53,14 +72,16 @@ enum App {
         // Keep the tap's shortcuts in sync with settings, live.
         tap.primaryHotkey = settings.primaryHotkey
         tap.overviewHotkey = settings.overviewHotkey
-        var cancellables = Set<AnyCancellable>()
         settings.$primaryHotkey.sink { tap.primaryHotkey = $0 }.store(in: &cancellables)
         settings.$overviewHotkey.sink { tap.overviewHotkey = $0 }.store(in: &cancellables)
 
         guard tap.install() else {
             print("⚠️  Failed to install event tap. Try toggling Accessibility off/on for this binary.")
-            exit(1)
+            cancellables.removeAll()
+            return false
         }
+        self.tap = tap
+        self.switcher = switcher
 
         print("✅ Ready.")
         print("   \(settings.primaryHotkey.displayString) — open / cycle forward")
@@ -72,10 +93,6 @@ enum App {
         print("   Cmd+, (while open) — open Settings")
         print("   Release the modifier — switch to the selected window")
         print("   Settings — menu bar icon → Settings…\n")
-
-        menuBar.install()
-        UpdateChecker.shared.start()
-        NSApplication.shared.run()
-        _ = menuBar  // retain
+        return true
     }
 }
