@@ -23,11 +23,14 @@ final class EventTap {
     var isActive: () -> Bool = { false }
     // While true, every key is passed through untouched (shortcut recording).
     var isSuspended: () -> Bool = { false }
+    // Called after the tap removed itself because Accessibility was revoked.
+    var onTrustRevoked: (() -> Void)?
 
     var primaryHotkey: Hotkey = .primaryDefault
     var overviewHotkey: Hotkey = .overviewDefault
 
     private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
     // The shortcut that opened the current session, used to cycle and to know
     // which release commits. nil when idle.
     private var session: Hotkey?
@@ -52,12 +55,36 @@ final class EventTap {
         self.tap = tap
         let src = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
+        source = src
         CGEvent.tapEnable(tap: tap, enable: true)
         return true
     }
 
+    var isInstalled: Bool { tap != nil }
+
+    // Remove the tap from the event stream. An active tap that has lost
+    // Accessibility can stall every keyboard and mouse event system-wide, so
+    // it must come out as soon as the grant is gone.
+    func uninstall() {
+        guard let tap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        self.tap = nil
+        source = nil
+        session = nil
+    }
+
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            // Re-enabling after Accessibility was revoked (e.g. `tccutil
+            // reset`) loops disable/enable and freezes input system-wide.
+            guard AXIsProcessTrusted() else {
+                print("tap: Accessibility revoked; removing the event tap")
+                uninstall()
+                onTrustRevoked?()
+                return Unmanaged.passUnretained(event)
+            }
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
