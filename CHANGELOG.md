@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/nunoh/uSwitch/compare/v0.3.0...v0.3.1) (2026-09-26)
+
+
+### 🐛 Fixes
+
+* keep macOS permissions across updates ([#10](https://github.com/nunoh/uSwitch/issues/10)) ([92b64ba](https://github.com/nunoh/uSwitch/commit/92b64ba84ad4bf7d70a3eab6a1a20ab96c604f50))
+
 ## [0.3.0](https://github.com/nunoh/uSwitch/compare/v0.2.0...v0.3.0) (2026-09-26)
 
 ### ✨ Features
