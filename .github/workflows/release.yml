@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  # Rebuild and re-upload the assets of an existing release, e.g. after a
+  # failed build job.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (e.g. v0.3.0)
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # A PAT (RELEASE_PLEASE_TOKEN) lets CI run on the release PR; the
+      # default token cannot trigger other workflows.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+
+  assets:
+    needs: release-please
+    if: >-
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       github.event_name == 'workflow_dispatch')
+    runs-on: macos-14
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Build DMG and zip
+        run: make dmg VERSION="${TAG#v}"
+
+      - name: Upload to the release
+        run: gh release upload "$TAG" dist/uSwitch-*.dmg dist/uSwitch-*.zip --clobber
