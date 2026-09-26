@@ -73,6 +73,7 @@ macOS will prompt on first launch. Grant both in **System Settings → Privacy &
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> (while open) | Quit the selected app, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> (while open) | Close the selected window, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>M</kbd> (while open) | Minimize the selected window, stay in the switcher |
+| <kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>F</kbd> (while open) | Toggle the all-Spaces overview on/off |
 | <kbd>Cmd</kbd>+<kbd>,</kbd> (while open) | Open Settings |
 
 The menu bar icon has **Settings…**, **Launch at Login**, and **About** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, and the flick delay; it persists in UserDefaults and applies live.
