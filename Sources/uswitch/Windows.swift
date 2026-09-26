@@ -55,42 +55,69 @@ enum Windows {
         return list
     }
 
-    // Membership is decided by WindowServer's own per-Space window lists, not by
-    // filtering `CGWindowListCopyWindowInfo(.optionAll)`. `.optionAll` keeps a
-    // pile of leftover surfaces an app no longer reports (Calendar alone leaves
-    // a dozen); the per-Space list does not. `candidates()` only supplies the
-    // metadata (title, bounds, on-screen) for ids that survive.
+    // Membership comes from WindowServer's per-Space window lists, not from
+    // filtering `CGWindowListCopyWindowInfo(.optionAll)` (which keeps a pile of
+    // leftover surfaces). Two lists are used: options 0 is the Space's *visible*
+    // windows, clean but excluding minimized ones; options 7 additionally lists
+    // minimized windows — and Chromium-style internal/helper windows. So a
+    // window not visible on a Space is kept only if Accessibility confirms it is
+    // minimized. `candidates()` only supplies metadata for ids that survive.
     private static func assemble(descriptors: [Spaces.SpaceDescriptor]) -> [WindowInfo] {
         guard !descriptors.isEmpty else { return [] }
-        var spaceFor: [CGWindowID: CGSSpaceID] = [:]
+        var visibleSpaceFor: [CGWindowID: CGSSpaceID] = [:]
+        var allSpaceFor: [CGWindowID: CGSSpaceID] = [:]
         for descriptor in descriptors {
-            for id in Spaces.windowIDs(onSpace: descriptor.id) where spaceFor[id] == nil {
-                spaceFor[id] = descriptor.id
+            for id in Spaces.windowIDs(onSpace: descriptor.id, options: 0) where visibleSpaceFor[id] == nil {
+                visibleSpaceFor[id] = descriptor.id
+            }
+            for id in Spaces.windowIDs(onSpace: descriptor.id, options: 7) where allSpaceFor[id] == nil {
+                allSpaceFor[id] = descriptor.id
             }
         }
+
         let all = candidates()
-        let tagged: [WindowInfo]
-        if spaceFor.isEmpty {
+        if visibleSpaceFor.isEmpty && allSpaceFor.isEmpty {
             // WindowServer's per-Space list came back empty (unexpected). Fall
             // back to matching each window's reported Space so the switcher
             // still works rather than showing nothing.
             print("[windows] per-Space lists unavailable; falling back to spaceIDs")
-            tagged = all.compactMap { window -> WindowInfo? in
+            let tagged = all.compactMap { window -> WindowInfo? in
                 let ids = Spaces.spaceIDs(for: window.id)
                 guard let match = descriptors.first(where: { ids.contains($0.id) }) else { return nil }
                 var tagged = window
                 tagged.spaceID = match.id
                 return tagged
             }
-        } else {
-            tagged = all.compactMap { window -> WindowInfo? in
-                guard let space = spaceFor[window.id] else { return nil }
-                var tagged = window
+            return orderFrontToBack(tagged).pruningNonStandardWindows()
+        }
+
+        // One accessibility round trip per app, shared across its windows.
+        var axByPID: [pid_t: AXWindowList] = [:]
+        func axList(_ pid: pid_t) -> AXWindowList {
+            if let cached = axByPID[pid] { return cached }
+            let fetched = axWindowList(for: pid)
+            axByPID[pid] = fetched
+            return fetched
+        }
+
+        var result: [WindowInfo] = []
+        for window in orderFrontToBack(all) {
+            let verdict = classify(window, in: axList(window.pid))
+            guard verdict.standard else { continue }
+            var tagged = window
+            if let space = visibleSpaceFor[window.id] {
                 tagged.spaceID = space
-                return tagged
+                tagged.isMinimized = verdict.minimized
+                result.append(tagged)
+            } else if let space = allSpaceFor[window.id], verdict.minimized {
+                // Not visible on its Space: only a genuinely minimized window
+                // is worth a tile, not an internal/offscreen helper window.
+                tagged.spaceID = space
+                tagged.isMinimized = true
+                result.append(tagged)
             }
         }
-        return orderFrontToBack(tagged).pruningNonStandardWindows()
+        return result
     }
 
     // `CGWindowListCopyWindowInfo(.optionAll)` does not preserve z-order — it can
@@ -310,12 +337,15 @@ enum Windows {
             // already vouched for it, and its minimized state is unknown.
             return (true, false)
         case .available(let list):
+            // The app reports no windows right now (it may be on another Space),
+            // so it cannot be cross-checked; the per-Space list already vouched
+            // for the window and its minimized state is unknown.
+            guard !list.isEmpty else { return (true, false) }
             let matches = list.filter { axMatches($0, window) }
             guard !matches.isEmpty else {
-                // The app did not report this window. Accessibility only
-                // exposes windows on the active Space, so this is a window on
-                // another Space, not a fake one. Keep it, minimized unknown.
-                return (true, false)
+                // The app reports windows, but not this one — an internal window
+                // WindowServer lists but the app does not treat as a window.
+                return (false, false)
             }
             guard matches.contains(where: { subrole(for: $0).map(switchableSubroles.contains) ?? true })
             else { return (false, false) }

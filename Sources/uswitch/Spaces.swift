@@ -96,7 +96,7 @@ enum Spaces {
         _ clearTags: UnsafeMutablePointer<Int>
     ) -> CFArray?
 
-    static func windowIDs(onSpace id: CGSSpaceID) -> [CGWindowID] {
+    static func windowIDs(onSpace id: CGSSpaceID, options: Int = 7) -> [CGWindowID] {
         var setTags = 0
         var clearTags = 0
         let spaces = [id] as CFArray
@@ -104,7 +104,7 @@ enum Spaces {
             CGSMainConnectionID(),
             0,
             spaces,
-            7,
+            options,
             &setTags,
             &clearTags
         ) as? [NSNumber] else { return [] }
