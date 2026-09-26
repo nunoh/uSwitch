@@ -106,7 +106,6 @@ struct ThumbnailTile: View {
                 .font(.system(size: max(9, 12 * scale), weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
                 .truncationMode(.middle)
                 .frame(width: w)
         }
