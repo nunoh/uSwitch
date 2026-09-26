@@ -30,7 +30,7 @@ brew install --cask nunoh/tap/uswitch
 
 Or grab the latest Apple Silicon `.dmg` from [Releases](https://github.com/nunoh/uSwitch/releases), open it, and drag `uSwitch.app` into `/Applications`. A `.zip` is attached too, with a `SHA256SUMS.txt` and a [build attestation](RELEASING.md#verifying-a-download). Or [build from source](#build-from-source).
 
-> macOS 13+. Release builds are ad-hoc signed and not notarized. After the first blocked launch, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, then confirm **Open**. Later launches work normally.
+> macOS 13+. Release builds are self-signed and not notarized. Homebrew skips the Gatekeeper prompt; for a manual install, after the first blocked launch, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, then confirm **Open**. Later launches work normally.
 
 **Managed Mac (corporate MDM):** right-click → Open may be blocked. Instead, copy the `.app` via AirDrop, USB, or any means other than a browser download, then strip the quarantine flag before opening:
 ```sh
@@ -105,7 +105,7 @@ make dmg      # release build + versioned Apple Silicon zip and dmg
 make install  # release build into /Applications and launches
 ```
 
-Local `dev`, `bundle`, and `install` builds use the stable self-signed certificate from `scripts/setup-cert.sh`, so permission grants persist across local rebuilds. Downloadable release archives use an ad-hoc signature so they do not depend on a certificate that exists only on the build machine.
+Local `dev`, `bundle`, and `install` builds use the stable self-signed certificate from `scripts/setup-cert.sh`, so permission grants persist across local rebuilds. Releases are signed with the same certificate in CI, so grants also persist across updates.
 
 ### GNOME
 

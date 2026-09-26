@@ -46,7 +46,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 gh attestation verify uSwitch-vX.Y.Z-arm64.dmg --repo nunoh/uSwitch
 ```
 
-The attestation proves the file was built by this repo's `Release` workflow. Release builds are ad-hoc signed, so this is the only way to tell an official build from a rebuilt copy.
+The attestation proves the file was built by this repo's `Release` workflow. Release builds are self-signed, not notarized, so this is the most reliable way to tell an official build from a rebuilt copy.
 
 ## Local builds
 
@@ -63,9 +63,26 @@ release-please runs with `RELEASE_PLEASE_TOKEN` when that secret exists, else th
 
 ## Signing
 
-`scripts/setup-cert.sh` creates a self-signed cert (`uSwitch Self-Signed`) in the login keychain on first run. Local `dev`, `bundle`, and `install` builds use it so Accessibility / Screen Recording grants survive rebuilds.
+`scripts/setup-cert.sh` creates a self-signed cert (`uSwitch Self-Signed`, SHA-1 `BC502E94…3A39`) in the login keychain on first run. Every build is signed with it: local `dev`, `bundle`, `install`, and the CI release. macOS ties Accessibility / Screen Recording grants to the signing certificate, so they survive rebuilds and updates. An ad-hoc signature would tie them to the build's hash and reset them on every update.
 
-The downloadable release is **ad-hoc signed, not notarized**. First-launch users need to approve it in System Settings → Privacy & Security → Open Anyway. README mentions this; revisit if/when notarization is set up.
+CI imports the cert from two secrets and fails the release if the app is not signed with it:
+
+| Secret | Value |
+|--------|-------|
+| `MACOS_SIGN_P12` | The cert and private key as a base64 `.p12` |
+| `MACOS_SIGN_P12_PASSWORD` | The `.p12` password |
+
+To set them: Keychain Access → login → My Certificates → right-click **uSwitch Self-Signed** → Export… → `uswitch-sign.p12` with a password. Then:
+
+```sh
+base64 -i uswitch-sign.p12 | gh secret set MACOS_SIGN_P12
+gh secret set MACOS_SIGN_P12_PASSWORD
+rm uswitch-sign.p12
+```
+
+Keep the cert: a new one changes the signing identity, and every user must grant the permissions again. If you lose it, run `make reset-perms` locally after installing the first build with the new one, and update `SIGN_CERT_SHA1` in `release.yml`.
+
+The release is **not notarized**. The Homebrew cask removes the quarantine flag after install, so brew users skip Gatekeeper. Users who download the DMG approve it once in System Settings → Privacy & Security → Open Anyway. Revisit when a Developer ID is available.
 
 ## Version surfaces
 
