@@ -1,10 +1,13 @@
-.PHONY: dev build-app bundle release install uninstall reset-perms setup-cert cloc clean install-gnome-extension uninstall-gnome-extension
+.PHONY: dev build-app bundle release dmg install uninstall reset-perms setup-cert cloc clean install-gnome-extension uninstall-gnome-extension
 
 DEV_APP      = dist/uswitch.app
 RELEASE_APP  = dist/uSwitch.app
 RELEASE_ZIP  = dist/uSwitch-v$(VERSION)-arm64.zip
+RELEASE_DMG  = dist/uSwitch-v$(VERSION)-arm64.dmg
+DMG_STAGING  = dist/dmg
 INSTALLED    = /Applications/uSwitch.app
-VERSION     ?= 0.2
+# release-please bumps version.txt; CI passes VERSION from the release tag.
+VERSION     ?= $(shell cat version.txt)
 LOCAL_SIGN_ID = uSwitch Self-Signed
 GNOME_EXT_UUID = uswitch@nh.com
 GNOME_EXT_SRC  = gnome-extension/$(GNOME_EXT_UUID)
@@ -43,6 +46,15 @@ release: build-app
 	@rm -f $(RELEASE_ZIP)
 	@ditto -c -k --keepParent $(RELEASE_APP) $(RELEASE_ZIP)
 	@echo "✅ release archive: $(RELEASE_ZIP) (ad-hoc signed)"
+
+dmg: release
+	@rm -rf $(DMG_STAGING) $(RELEASE_DMG)
+	@mkdir -p $(DMG_STAGING)
+	@ditto $(RELEASE_APP) $(DMG_STAGING)/uSwitch.app
+	@ln -s /Applications $(DMG_STAGING)/Applications
+	@hdiutil create -volname "uSwitch" -srcfolder $(DMG_STAGING) -format UDZO -ov $(RELEASE_DMG) >/dev/null
+	@rm -rf $(DMG_STAGING)
+	@echo "✅ disk image: $(RELEASE_DMG) (ad-hoc signed)"
 
 install: bundle
 	@pkill -x uswitch 2>/dev/null || true

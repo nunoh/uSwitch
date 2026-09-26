@@ -42,6 +42,7 @@ enum App {
         tap.onQuit    = { MainActor.assumeIsolated { switcher.quitSelected() } }
         tap.onCloseWindow = { MainActor.assumeIsolated { switcher.closeSelectedWindow() } }
         tap.onMinimize = { MainActor.assumeIsolated { switcher.minimizeSelected() } }
+        tap.onToggleMode = { MainActor.assumeIsolated { switcher.toggleMode() } }
         tap.onSettings = { MainActor.assumeIsolated {
             // Bail out of the switcher without switching, then show Settings.
             switcher.close()
@@ -67,11 +68,13 @@ enum App {
         print("   \(settings.overviewHotkey.displayString) — all-Spaces overview")
         print("   Esc — cancel (swallowed, will not reach iTerm)")
         print("   Cmd+Q / Cmd+W / Cmd+M — quit / close / minimize the selected window")
+        print("   S / Cmd+F (while open) — toggle the all-Spaces overview")
         print("   Cmd+, (while open) — open Settings")
         print("   Release the modifier — switch to the selected window")
         print("   Settings — menu bar icon → Settings…\n")
 
         menuBar.install()
+        UpdateChecker.shared.start()
         NSApplication.shared.run()
         _ = menuBar  // retain
     }

@@ -46,6 +46,9 @@
 - Cmd+M minimizes the selected window; the tile moves into the minimized strip
   and the overlay stays open.
 - Cmd+, dismisses without switching and opens the Settings window.
+- S or Cmd+F toggles between the current-Space switcher and the all-Spaces
+  overview while the overlay stays open; the selected window is preserved when
+  present in both.
 - After a close/quit the window list is refreshed; if no windows remain the
   overlay closes.
 

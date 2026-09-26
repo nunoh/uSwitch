@@ -224,7 +224,14 @@ struct OverlayView: View {
         sections.allSatisfy { $0.active.isEmpty && $0.minimized.isEmpty }
     }
 
+    // Only the all-Spaces overview tints its current Space (those sections carry
+    // titles; the single current-Space switcher section does not).
+    private func highlight(_ section: OverlaySection) -> Bool {
+        section.isCurrent && section.title != nil
+    }
+
     var body: some View {
+        let overview = sections.contains { $0.title != nil }
         Group {
             if isEmpty {
                 Color.clear.frame(width: tile.width * 0.25, height: tile.height * 0.25)
@@ -233,7 +240,7 @@ struct OverlayView: View {
                 // overlay taller than the screen, and it must scroll down rather
                 // than run off the edge.
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: tileSpacing * 1.4) {
+                    VStack(alignment: .leading, spacing: 8) {
                         ForEach(sections) { section in
                             if !section.active.isEmpty || !section.minimized.isEmpty {
                                 VStack(alignment: .leading, spacing: tileSpacing) {
@@ -252,11 +259,27 @@ struct OverlayView: View {
                                         )
                                     }
                                 }
+                                // In the all-Spaces overview, tint the current
+                                // Space's section so it reads at a glance even
+                                // without noticing the badge.
+                                .padding(overview ? 10 : 0)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(highlight(section) ? Color.accentColor.opacity(0.06) : .clear)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(
+                                            highlight(section) ? Color.accentColor.opacity(0.25) : .clear,
+                                            lineWidth: 1
+                                        )
+                                )
                             }
                         }
                     }
                     .padding(overlayPadding)
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: maxHeight)
             }
         }
@@ -422,6 +445,28 @@ final class Switcher {
     func open() { open(mode: .currentSpace) }
 
     func openOverview() { open(mode: .allSpaces) }
+
+    // Flip between the current-Space switcher and the all-Spaces overview while
+    // the overlay stays open, keeping the selected window if it appears in both.
+    func toggleMode() {
+        guard active else { return }
+        reveal()
+        let current = hoveredIndex ?? selectedIndex
+        let previousID = windows.indices.contains(current) ? windows[current].id : nil
+        mode = (mode == .currentSpace) ? .allSpaces : .currentSpace
+        loadWindows()
+        thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
+            cache.image(for: w.id).map { (w.id, $0) }
+        })
+        if let previousID, let index = windows.firstIndex(where: { $0.id == previousID }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = initialSelection()
+        }
+        hoveredIndex = nil
+        render(animated: true)
+        captureMissingThumbnails()
+    }
 
     private func open(mode: Mode) {
         let t0 = Date()

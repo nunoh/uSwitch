@@ -24,7 +24,11 @@ uSwitch targets the narrow gap between them: HyperSwitch's switching model in a 
 
 ### macOS
 
-Grab the latest Apple Silicon `.zip` from [Releases](https://github.com/nunoh/uSwitch/releases), unzip it, and drop `uSwitch.app` into `/Applications`. Or [build from source](#build-from-source).
+```sh
+brew install --cask nunoh/tap/uswitch
+```
+
+Or grab the latest Apple Silicon `.dmg` from [Releases](https://github.com/nunoh/uSwitch/releases), open it, and drag `uSwitch.app` into `/Applications`. A `.zip` is attached too, with a `SHA256SUMS.txt` and a [build attestation](RELEASING.md#verifying-a-download). Or [build from source](#build-from-source).
 
 > macOS 13+. Release builds are ad-hoc signed and not notarized. After the first blocked launch, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, then confirm **Open**. Later launches work normally.
 
@@ -73,9 +77,10 @@ macOS will prompt on first launch. Grant both in **System Settings → Privacy &
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> (while open) | Quit the selected app, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> (while open) | Close the selected window, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>M</kbd> (while open) | Minimize the selected window, stay in the switcher |
+| <kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>F</kbd> (while open) | Toggle the all-Spaces overview on/off |
 | <kbd>Cmd</kbd>+<kbd>,</kbd> (while open) | Open Settings |
 
-The menu bar icon has **Settings…**, **Launch at Login**, and **About** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, and the flick delay; it persists in UserDefaults and applies live.
+The menu bar icon has **Settings…**, **Launch at Login**, **About**, and **Check for Updates…** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, the flick delay, and the daily update check; it persists in UserDefaults and applies live.
 
 ### GNOME
 
@@ -96,6 +101,7 @@ The extension replaces GNOME's application and window switchers so that every wi
 make dev      # debug build, signs with the local cert, runs in foreground
 make bundle   # release build into dist/uSwitch.app
 make release  # release build + versioned Apple Silicon zip
+make dmg      # release build + versioned Apple Silicon zip and dmg
 make install  # release build into /Applications and launches
 ```
 
