@@ -446,6 +446,28 @@ final class Switcher {
 
     func openOverview() { open(mode: .allSpaces) }
 
+    // Flip between the current-Space switcher and the all-Spaces overview while
+    // the overlay stays open, keeping the selected window if it appears in both.
+    func toggleMode() {
+        guard active else { return }
+        reveal()
+        let current = hoveredIndex ?? selectedIndex
+        let previousID = windows.indices.contains(current) ? windows[current].id : nil
+        mode = (mode == .currentSpace) ? .allSpaces : .currentSpace
+        loadWindows()
+        thumbnails = Dictionary(uniqueKeysWithValues: windows.compactMap { w in
+            cache.image(for: w.id).map { (w.id, $0) }
+        })
+        if let previousID, let index = windows.firstIndex(where: { $0.id == previousID }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = initialSelection()
+        }
+        hoveredIndex = nil
+        render(animated: true)
+        captureMissingThumbnails()
+    }
+
     private func open(mode: Mode) {
         let t0 = Date()
         active = true

@@ -5,6 +5,8 @@ private let kVK_Escape: CGKeyCode = 53
 private let kVK_Q: CGKeyCode = 12
 private let kVK_W: CGKeyCode = 13
 private let kVK_M: CGKeyCode = 46
+private let kVK_S: CGKeyCode = 1
+private let kVK_F: CGKeyCode = 3
 private let kVK_Comma: CGKeyCode = 43
 
 final class EventTap {
@@ -17,6 +19,7 @@ final class EventTap {
     var onCloseWindow: (() -> Void)?
     var onMinimize: (() -> Void)?
     var onSettings: (() -> Void)?
+    var onToggleMode: (() -> Void)?
     var isActive: () -> Bool = { false }
     // While true, every key is passed through untouched (shortcut recording).
     var isSuspended: () -> Bool = { false }
@@ -93,6 +96,20 @@ final class EventTap {
                     onTriggerOverview?()
                     return nil
                 }
+            }
+            // While the overlay is up, `s` or `f` toggles between the
+            // current-Space switcher and the all-Spaces overview, and back. Both
+            // work with the trigger modifier still held (Cmd+S / Option+S), and
+            // Cmd+F works explicitly regardless of which trigger opened it.
+            if activeNow, keycode == kVK_S || keycode == kVK_F {
+                let held = flags.intersection(Hotkey.relevantModifiers)
+                let matchesSession = session.map { held == $0.normalizedModifiers } ?? false
+                let explicitCommandF = keycode == kVK_F && held == .maskCommand
+                if matchesSession || explicitCommandF {
+                    print("tap: toggle spaces overview")
+                    onToggleMode?()
+                }
+                return nil
             }
             if activeNow, keycode == kVK_Escape {
                 print("tap: escape")
