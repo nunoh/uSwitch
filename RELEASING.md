@@ -7,7 +7,7 @@ Notes for the project maintainer. Not user-facing.
 Releases are automated with [release-please](https://github.com/googleapis/release-please) and GitHub Actions.
 
 1. **Every change lands on `main` through a PR.** Direct pushes are blocked. PRs are squash-merged and the **PR title becomes the commit subject**, so it must be a [Conventional Commit](https://www.conventionalcommits.org/) (`feat: …`, `fix: …`). The `PR title` check enforces this, and `CI` must pass.
-2. **release-please keeps a release PR open** (`chore(main): release X.Y.Z`). Each merge to `main` updates it: next version, `CHANGELOG.md` entry, `version.txt`.
+2. **release-please keeps a release PR open** (`chore: release vX.Y.Z`). Each merge to `main` updates it: next version, `CHANGELOG.md` entry, `version.txt`.
 3. **Merge the release PR to ship.** The `Release` workflow then tags `vX.Y.Z`, creates the GitHub release with the changelog entry as notes, builds `uSwitch-vX.Y.Z-arm64.dmg` and `.zip` on a macOS runner, and attaches both to the release with a `SHA256SUMS.txt` and a build provenance attestation.
 
 Do not edit `CHANGELOG.md` or `version.txt` in feature PRs. release-please owns them.
@@ -27,7 +27,7 @@ A `!` after the type (`feat!: …`) or a `BREAKING CHANGE:` footer marks a break
 
 ## Editing the release
 
-The release PR is a normal PR on the `release-please--branches--main--components--uSwitch` branch. To reword the changelog, edit `CHANGELOG.md` on that branch before merging. release-please rewrites the branch when another PR merges to `main`, so edit it last.
+The release PR is a normal PR on the `release-please--branches--main` branch. To reword the changelog, edit `CHANGELOG.md` on that branch before merging. release-please rewrites the branch when another PR merges to `main`, so edit it last.
 
 To force a version, add `Release-As: 1.0.0` to the body of a commit merged to `main`.
 
