@@ -9,7 +9,7 @@ final class SettingsWindow {
         presentSingleton(
             &window,
             title: "uSwitch Settings",
-            size: NSSize(width: 440, height: 560),
+            size: NSSize(width: 440, height: 640),
             styleMask: [.titled, .closable],
             rootView: SettingsView(settings: .shared)
         )
@@ -62,6 +62,13 @@ private struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Updates") {
+                Toggle("Check for updates daily", isOn: $settings.checkForUpdates)
+                Text("Asks GitHub for the latest release. Nothing else is sent.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 HStack {
                     Spacer()
@@ -70,7 +77,7 @@ private struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 560)
+        .frame(width: 440, height: 640)
     }
 }
 

@@ -76,7 +76,7 @@ macOS will prompt on first launch. Grant both in **System Settings → Privacy &
 | <kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>F</kbd> (while open) | Toggle the all-Spaces overview on/off |
 | <kbd>Cmd</kbd>+<kbd>,</kbd> (while open) | Open Settings |
 
-The menu bar icon has **Settings…**, **Launch at Login**, and **About** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, and the flick delay; it persists in UserDefaults and applies live.
+The menu bar icon has **Settings…**, **Launch at Login**, **About**, and **Check for Updates…** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, the flick delay, and the daily update check; it persists in UserDefaults and applies live.
 
 ### GNOME
 

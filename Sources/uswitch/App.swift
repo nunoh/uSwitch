@@ -74,6 +74,7 @@ enum App {
         print("   Settings — menu bar icon → Settings…\n")
 
         menuBar.install()
+        UpdateChecker.shared.start()
         NSApplication.shared.run()
         _ = menuBar  // retain
     }
