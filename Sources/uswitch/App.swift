@@ -37,6 +37,7 @@ enum App {
         tap.onTrigger = { MainActor.assumeIsolated { switcher.open() } }
         tap.onTriggerOverview = { MainActor.assumeIsolated { switcher.openOverview() } }
         tap.onCycle   = { backward in MainActor.assumeIsolated { switcher.cycle(backward: backward) } }
+        tap.onCycleMinimized = { backward in MainActor.assumeIsolated { switcher.cycleMinimized(backward: backward) } }
         tap.onEscape  = { MainActor.assumeIsolated { switcher.close() } }
         tap.onCommit  = { MainActor.assumeIsolated { switcher.commit() } }
         tap.onQuit    = { MainActor.assumeIsolated { switcher.quitSelected() } }
@@ -65,6 +66,7 @@ enum App {
         print("✅ Ready.")
         print("   \(settings.primaryHotkey.displayString) — open / cycle forward")
         print("   +Shift — backward")
+        print("   Fn (while open) — cycle through minimized windows")
         print("   \(settings.overviewHotkey.displayString) — all-Spaces overview")
         print("   Esc — cancel (swallowed, will not reach iTerm)")
         print("   Cmd+Q / Cmd+W / Cmd+M — quit / close / minimize the selected window")
