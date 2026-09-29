@@ -72,7 +72,9 @@ uninstall:
 	@rm -rf $(INSTALLED)
 	@echo "✅ removed $(INSTALLED) (run 'make reset-perms' to also revoke TCC grants)"
 
+# Quit first: revoking Accessibility under a live event tap can freeze input.
 reset-perms:
+	@pkill -x uswitch 2>/dev/null || true
 	@tccutil reset Accessibility com.nh.uswitch >/dev/null 2>&1 || true
 	@tccutil reset ScreenCapture com.nh.uswitch >/dev/null 2>&1 || true
 	@echo "→ TCC reset for com.nh.uswitch (Accessibility + Screen Recording)"

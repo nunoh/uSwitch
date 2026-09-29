@@ -79,14 +79,27 @@ enum Permissions {
 @MainActor
 final class PermissionsWindow {
     private var window: NSWindow?
-    private let model = PermissionsModel()
+    private var model: PermissionsModel?
 
     // `onAccessibilityGranted` starts the switcher; it returns false when the
-    // event tap still cannot be installed, which needs a relaunch.
+    // event tap still cannot be installed, which needs a relaunch. The model
+    // keeps polling after the window is closed, so a later grant still starts
+    // the switcher.
     func show(onAccessibilityGranted: @escaping () -> Bool) {
+        if let window, window.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        // Shown again (e.g. after Accessibility was revoked): start fresh so
+        // the status reflects the current grants.
+        model?.stop()
+        window = nil
+        let model = PermissionsModel()
         model.onAccessibilityGranted = onAccessibilityGranted
         model.onDone = { [weak self] in self?.window?.close() }
         model.start()
+        self.model = model
         presentSingleton(
             &window,
             title: "Set Up uSwitch",
@@ -110,9 +123,14 @@ private final class PermissionsModel: ObservableObject {
     private let capturing = Permissions.screenRecording
 
     func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            MainActor.assumeIsolated { self.refresh() }
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func refresh() {
@@ -125,7 +143,7 @@ private final class PermissionsModel: ObservableObject {
         screenRecording = Permissions.screenRecordingGranted
         if screenRecording && !capturing { needsRelaunch = true }
         if accessibility && screenRecording && !needsRelaunch {
-            timer?.invalidate()
+            stop()
             onDone?()
         }
     }
