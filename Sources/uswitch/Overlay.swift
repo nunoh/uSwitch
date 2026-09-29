@@ -24,8 +24,12 @@ final class OverlayPanel: NSPanel {
 private let tileSpacing: CGFloat = 12
 private let overlayPadding: CGFloat = 20
 private let screenMargin: CGFloat = 80
+// Keeps the overlay clear of the menu bar / Dock when it is taller than the
+// centered content (i.e. when the minimized strip extends it downward).
+private let overlayVerticalMargin: CGFloat = 60
 private let minimizedTileWidth: CGFloat = 140
 private let minimizedTileHeight: CGFloat = 28
+private let minimizedTileSpacing: CGFloat = 8
 private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
     .moveToActiveSpace,
     .transient,
@@ -54,6 +58,9 @@ struct OverlaySection: Identifiable {
     let isCurrent: Bool
     let scale: CGFloat
     let maxTilesPerRow: Int
+    // Minimized tiles are much narrower than thumbnails, so they get their own
+    // per-row count: they sit side by side until the width runs out.
+    let minimizedPerRow: Int
     let active: [IndexedWindow]
     let minimized: [IndexedWindow]
 }
@@ -255,7 +262,7 @@ struct OverlayView: View {
                                     if !section.minimized.isEmpty {
                                         minimizedBlock(
                                             section.minimized,
-                                            maxTilesPerRow: section.maxTilesPerRow
+                                            maxTilesPerRow: section.minimizedPerRow
                                         )
                                     }
                                 }
@@ -327,7 +334,7 @@ struct OverlayView: View {
                 .padding(.leading, 2)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 8) {
+                    HStack(spacing: minimizedTileSpacing) {
                         ForEach(row) { item in
                             MinimizedTile(
                                 window: item.window,
@@ -385,6 +392,13 @@ final class Switcher {
     private var openGeneration: Int = 0
     private var openScreen: NSScreen?
     private var openSpaceIDs: Set<CGSSpaceID> = []
+    // Height the overlay would have without the minimized strip. The panel is
+    // anchored by its top at the centered position of this height so adding
+    // minimized windows grows it downward instead of nudging the live
+    // thumbnails up.
+    private var anchorHeight: CGFloat = 0
+    // True while Fn-cycling has the selection on a minimized tile.
+    private var browsingMinimized = false
     private var openMouseLocation: CGPoint = .zero
     private var hoverArmed = false
     // Flick grace: the panel is ordered in transparent and revealed after
@@ -471,6 +485,7 @@ final class Switcher {
     private func open(mode: Mode) {
         let t0 = Date()
         active = true
+        browsingMinimized = false
         self.mode = mode
         openScreen = currentScreen()
         loadWindows()
@@ -719,12 +734,31 @@ final class Switcher {
         let selectable = cycleIndices
         guard !selectable.isEmpty else { selectedIndex = 0; return }
         if selectable.contains(selectedIndex) { return }
+        if browsingMinimized, windows.indices.contains(selectedIndex), windows[selectedIndex].isMinimized { return }
         selectedIndex = selectable.last(where: { $0 < selectedIndex }) ?? selectable[0]
+    }
+
+    // Fn while the overlay is up: step through the minimized windows only.
+    func cycleMinimized(backward: Bool) {
+        guard isOpen else { return }
+        let order = windows.indices.filter { windows[$0].isMinimized }
+        guard !order.isEmpty else { return }
+        reveal()
+        browsingMinimized = true
+        if let current = order.firstIndex(of: selectedIndex) {
+            let step = backward ? -1 : 1
+            selectedIndex = order[(current + step + order.count) % order.count]
+        } else {
+            selectedIndex = backward ? order[order.count - 1] : order[0]
+        }
+        hoveredIndex = nil
+        render()
     }
 
     func cycle(backward: Bool) {
         let order = cycleIndices
         guard !order.isEmpty else { return }
+        browsingMinimized = false
         // Cycling is intent to browse — reveal immediately.
         reveal()
         let current = order.firstIndex(of: selectedIndex) ?? 0
@@ -806,8 +840,9 @@ final class Switcher {
     }
 
     private func render(animated: Bool = false) {
+        let model = overlaySections()
         let view = OverlayView(
-            sections: overlaySections(),
+            sections: model,
             thumbnails: thumbnails,
             selectedIndex: selectedIndex,
             hoveredIndex: hoveredIndex,
@@ -832,7 +867,46 @@ final class Switcher {
         } else {
             h.rootView = view
         }
-        resizePanel(to: h.fittingSize, animated: animated)
+        let size = h.fittingSize
+        anchorHeight = anchorHeight(for: model, fullHeight: size.height)
+        resizePanel(to: size, animated: animated)
+    }
+
+    // The "no minimized windows" height of the overlay. Measured by laying out
+    // the same sections with their minimized strips removed; the panel's top is
+    // pinned to the centered position of this height. Falls back to the full
+    // height when there is nothing to anchor to (no active windows).
+    private func anchorHeight(for sections: [OverlaySection], fullHeight: CGFloat) -> CGFloat {
+        let hasMinimized = sections.contains { !$0.minimized.isEmpty }
+        let hasActive = sections.contains { !$0.active.isEmpty }
+        guard hasMinimized, hasActive else { return fullHeight }
+
+        let stripped = sections.map { section in
+            OverlaySection(
+                id: section.id,
+                title: section.title,
+                isCurrent: section.isCurrent,
+                scale: section.scale,
+                maxTilesPerRow: section.maxTilesPerRow,
+                minimizedPerRow: section.minimizedPerRow,
+                active: section.active,
+                minimized: []
+            )
+        }
+        // Thumbnails and icons never change a tile's frame, so an empty map is
+        // enough to measure the layout.
+        let probe = OverlayView(
+            sections: stripped,
+            thumbnails: [:],
+            selectedIndex: -1,
+            hoveredIndex: nil,
+            tile: Settings.shared.tileSize.metrics,
+            maxHeight: overlayMaxHeight(),
+            onSelect: { _ in },
+            onHover: { _ in },
+            onHoverEnd: { _ in }
+        )
+        return NSHostingView(rootView: probe).fittingSize.height
     }
 
     // Flatten the sections into the display model, assigning each window its
@@ -860,6 +934,7 @@ final class Switcher {
                     on: openScreen,
                     tile: Settings.shared.tileSize.metrics
                 ),
+                minimizedPerRow: minimizedTilesPerRow(on: openScreen),
                 active: active,
                 minimized: minimized
             )
@@ -868,7 +943,9 @@ final class Switcher {
 
     // The panel is sized to its content, so a shrinking list would snap the
     // window while the tiles are still animating. Grow/shrink it on the same
-    // curve so the whole overlay moves as one.
+    // curve so the whole overlay moves as one. Its top stays put at the
+    // centered position of `anchorHeight`, so extra (minimized) rows extend the
+    // overlay downward rather than shifting the live thumbnails upward.
     private func resizePanel(to size: CGSize, animated: Bool) {
         guard animated, panel.isVisible, let screen = openScreen else {
             panel.setContentSize(size)
@@ -876,7 +953,7 @@ final class Switcher {
         }
         let frame = NSRect(
             x: screen.frame.midX - size.width / 2,
-            y: screen.frame.midY - size.height / 2,
+            y: anchorOriginY(for: size, on: screen),
             width: size.width,
             height: size.height
         )
@@ -885,6 +962,17 @@ final class Switcher {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
         }
+    }
+
+    // Bottom edge for a panel of `size` whose top sits where a vertically
+    // centered, `anchorHeight`-tall overlay's top would. When nothing extra is
+    // shown (anchor == height) this is plain centering. The bottom is clamped
+    // so a very tall minimized strip cannot push the overlay off screen; the
+    // scroll view then handles the overflow.
+    private func anchorOriginY(for size: CGSize, on screen: NSScreen) -> CGFloat {
+        let anchored = screen.frame.midY - size.height + anchorHeight / 2
+        let minY = screen.visibleFrame.minY + overlayVerticalMargin
+        return max(anchored, minY)
     }
 
     private func currentScreen() -> NSScreen? {
@@ -896,7 +984,7 @@ final class Switcher {
     // bottom so it never runs off the screen.
     private func overlayMaxHeight() -> CGFloat {
         let screenHeight = openScreen?.visibleFrame.height ?? 800
-        return max(200, screenHeight - 120)
+        return max(200, screenHeight - overlayVerticalMargin * 2)
     }
 
     private func tilesPerRow(
@@ -912,17 +1000,26 @@ final class Switcher {
         return min(count, fit)
     }
 
-    private func centerPanel() {
+    // How many minimized strips fit on one row. They are fixed-width, so this
+    // only depends on the screen: side by side until the width runs out, then
+    // wrap onto another row.
+    private func minimizedTilesPerRow(on screen: NSScreen?) -> Int {
+        let available = (screen?.visibleFrame.width ?? 1280) - screenMargin * 2 - overlayPadding * 2
+        return max(1, Int((available + minimizedTileSpacing) / (minimizedTileWidth + minimizedTileSpacing)))
+    }
+
+    // Horizontally centered, vertically anchored by the top per anchorOriginY.
+    private func placePanel() {
         guard let screen = openScreen else { return }
         let size = panel.frame.size
         panel.setFrameOrigin(CGPoint(
             x: screen.frame.midX - size.width / 2,
-            y: screen.frame.midY - size.height / 2
+            y: anchorOriginY(for: size, on: screen)
         ))
     }
 
     private func positionAndShow() {
-        centerPanel()
+        placePanel()
         // Force a fresh Space association on every show. AppKit can report an
         // ordered panel as visible after a Space change even when WindowServer
         // is still holding it on the previous Space; ordering out first plus

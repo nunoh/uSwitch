@@ -8,11 +8,13 @@ private let kVK_M: CGKeyCode = 46
 private let kVK_S: CGKeyCode = 1
 private let kVK_F: CGKeyCode = 3
 private let kVK_Comma: CGKeyCode = 43
+private let kVK_Function: CGKeyCode = 63
 
 final class EventTap {
     var onTrigger: (() -> Void)?
     var onTriggerOverview: (() -> Void)?
     var onCycle: ((Bool) -> Void)?  // backward = true
+    var onCycleMinimized: ((Bool) -> Void)?  // backward = true
     var onEscape: (() -> Void)?
     var onCommit: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -34,6 +36,7 @@ final class EventTap {
     // The shortcut that opened the current session, used to cycle and to know
     // which release commits. nil when idle.
     private var session: Hotkey?
+    private var fnWasDown = false
 
     func install() -> Bool {
         let mask: CGEventMask =
@@ -73,6 +76,7 @@ final class EventTap {
         self.tap = nil
         source = nil
         session = nil
+        fnWasDown = false
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -171,7 +175,17 @@ final class EventTap {
                 return nil
             }
         } else if type == .flagsChanged {
+            let fn = flags.contains(.maskSecondaryFn)
+            let fnPressed = keycode == kVK_Function && fn && !fnWasDown
+            fnWasDown = fn
             guard activeNow, let session else { return Unmanaged.passUnretained(event) }
+            // Pressing Fn while the trigger modifier is held steps through the
+            // minimized windows.
+            if fnPressed, !session.isReleased(flags) {
+                print("tap: cycle minimized (shift=\(shift))")
+                onCycleMinimized?(shift)
+                return Unmanaged.passUnretained(event)
+            }
             if session.isReleased(flags) {
                 print("tap: commit (hotkey released, flags=\(flags.rawValue))")
                 self.session = nil
