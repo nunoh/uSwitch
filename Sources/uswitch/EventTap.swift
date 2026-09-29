@@ -76,6 +76,7 @@ final class EventTap {
         self.tap = nil
         source = nil
         session = nil
+        fnWasDown = false
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
