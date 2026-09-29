@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/nunoh/uSwitch/compare/v0.3.1...v0.4.0) (2026-09-29)
+
+
+### ✨ Features
+
+* cycle minimized windows with Fn ([#15](https://github.com/nunoh/uSwitch/issues/15)) ([6246fc8](https://github.com/nunoh/uSwitch/commit/6246fc83e9f32901a03781147d20666128324e36))
+* set up both permissions from one window ([#13](https://github.com/nunoh/uSwitch/issues/13)) ([913802f](https://github.com/nunoh/uSwitch/commit/913802f4c334302e1e51264e27f23e34393d0acc))
+
 ## [0.3.1](https://github.com/nunoh/uSwitch/compare/v0.3.0...v0.3.1) (2026-09-26)
 
 
