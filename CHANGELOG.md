@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/nunoh/uSwitch/compare/v0.4.0...v0.5.0) (2026-09-29)
+
+
+### ✨ Features
+
+* install signed updates in app with Sparkle ([#17](https://github.com/nunoh/uSwitch/issues/17)) ([e8ab716](https://github.com/nunoh/uSwitch/commit/e8ab716e0ef25f9a082e876fd0226eeb8459cc05))
+
 ## [0.4.0](https://github.com/nunoh/uSwitch/compare/v0.3.1...v0.4.0) (2026-09-29)
 
 
