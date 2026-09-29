@@ -131,7 +131,6 @@ final class Settings: ObservableObject {
     @Published var tileSize: TileSize { didSet { persist() } }
     @Published var otherSpaceScale: Double { didSet { persist() } }
     @Published var flickDelay: Double { didSet { persist() } }
-    @Published var checkForUpdates: Bool { didSet { persist() } }
 
     private let defaults = UserDefaults.standard
     private var isLoading = true
@@ -146,7 +145,6 @@ final class Settings: ObservableObject {
         // No flick grace by default: the overlay shows on every switch, as it
         // did before this was configurable.
         flickDelay = 0
-        checkForUpdates = true
         load()
         isLoading = false
     }
@@ -159,7 +157,8 @@ final class Settings: ObservableObject {
         tileSize = .medium
         otherSpaceScale = 0.72
         flickDelay = 0
-        checkForUpdates = true
+        UpdateChecker.shared.setAutomaticChecks(true)
+        UpdateChecker.shared.setAutomaticDownloads(true)
     }
 
     // MARK: - Persistence
@@ -173,7 +172,6 @@ final class Settings: ObservableObject {
         static let otherSpaceScale = "otherSpaceScale"
         // Renamed from "flickDelay" so the pre-0 default (0.1s) does not linger.
         static let flickDelay = "flickDelaySeconds"
-        static let checkForUpdates = "checkForUpdates"
     }
 
     private func load() {
@@ -194,9 +192,6 @@ final class Settings: ObservableObject {
         if defaults.object(forKey: Key.flickDelay) != nil {
             flickDelay = defaults.double(forKey: Key.flickDelay)
         }
-        if defaults.object(forKey: Key.checkForUpdates) != nil {
-            checkForUpdates = defaults.bool(forKey: Key.checkForUpdates)
-        }
     }
 
     private func persist() {
@@ -208,7 +203,6 @@ final class Settings: ObservableObject {
         defaults.set(tileSize.rawValue, forKey: Key.tileSize)
         defaults.set(otherSpaceScale, forKey: Key.otherSpaceScale)
         defaults.set(flickDelay, forKey: Key.flickDelay)
-        defaults.set(checkForUpdates, forKey: Key.checkForUpdates)
     }
 
     private func readHotkey(_ key: String) -> Hotkey? {

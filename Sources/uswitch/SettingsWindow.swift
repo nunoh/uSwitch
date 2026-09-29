@@ -18,6 +18,7 @@ final class SettingsWindow {
 
 private struct SettingsView: View {
     @ObservedObject var settings: Settings
+    @ObservedObject private var updates = UpdateChecker.shared
 
     var body: some View {
         Form {
@@ -63,8 +64,16 @@ private struct SettingsView: View {
             }
 
             Section("Updates") {
-                Toggle("Check for updates daily", isOn: $settings.checkForUpdates)
-                Text("Asks GitHub for the latest release. Nothing else is sent.")
+                Toggle("Check for updates daily", isOn: Binding(
+                    get: { updates.checksAutomatically },
+                    set: { updates.setAutomaticChecks($0) }
+                ))
+                Toggle("Download and install updates automatically", isOn: Binding(
+                    get: { updates.downloadsAutomatically },
+                    set: { updates.setAutomaticDownloads($0) }
+                ))
+                .disabled(!updates.checksAutomatically)
+                Text("Updates are signed and installed when you quit uSwitch.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

@@ -75,6 +75,22 @@ jobs:
       - name: Build DMG and zip
         run: make dmg VERSION="${TAG#v}"
 
+      - name: Sign the Sparkle update feed
+        env:
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+        run: |
+          if [ -z "$SPARKLE_ED_KEY" ]; then
+            echo "::error::SPARKLE_ED_KEY is not set; see RELEASING.md#sparkle-update-signing"
+            exit 1
+          fi
+          mkdir -p dist/appcast-input
+          cp "dist/uSwitch-${TAG}-arm64.zip" dist/appcast-input/
+          printf '%s' "$SPARKLE_ED_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/nunoh/uSwitch/releases/download/${TAG}/" \
+            dist/appcast-input
+          cp dist/appcast-input/appcast.xml dist/appcast.xml
+
       # setup-cert.sh would mint a new certificate if the import failed; a
       # release signed with it would reset every user's permissions.
       - name: Check the signature
@@ -95,4 +111,4 @@ jobs:
             dist/uSwitch-*.zip
 
       - name: Upload to the release
-        run: gh release upload "$TAG" dist/uSwitch-*.dmg dist/uSwitch-*.zip dist/SHA256SUMS.txt --clobber
+        run: gh release upload "$TAG" dist/uSwitch-*.dmg dist/uSwitch-*.zip dist/SHA256SUMS.txt dist/appcast.xml --clobber
