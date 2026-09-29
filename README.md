@@ -60,7 +60,7 @@ uSwitch needs two permissions:
 - **Accessibility** — to capture Cmd+Tab before the system does.
 - **Screen Recording** — to render window thumbnails.
 
-macOS will prompt on first launch. Grant both in **System Settings → Privacy & Security**, then relaunch.
+On first launch a setup window lists both, with a button that opens the right pane of **System Settings → Privacy & Security**. It updates live: the switcher starts as soon as Accessibility is on, and a **Restart uSwitch** button appears once Screen Recording is on, since macOS applies that one after a restart.
 
 ## Usage
 
