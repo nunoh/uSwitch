@@ -8,7 +8,7 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 
 1. **Every change lands on `main` through a PR.** Direct pushes are blocked. PRs are squash-merged and the **PR title becomes the commit subject**, so it must be a [Conventional Commit](https://www.conventionalcommits.org/) (`feat: …`, `fix: …`). The `PR title` check enforces this, and `CI` must pass.
 2. **release-please keeps a release PR open** (`chore: release vX.Y.Z`). Each merge to `main` updates it: next version, `CHANGELOG.md` entry, `version.txt`.
-3. **Merge the release PR to ship.** The `Release` workflow then tags `vX.Y.Z`, creates the GitHub release with the changelog entry as notes, builds `uSwitch-vX.Y.Z-arm64.dmg` and `.zip` on a macOS runner, and attaches both to the release with a `SHA256SUMS.txt` and a build provenance attestation.
+3. **Merge the release PR to ship.** The `Release` workflow then tags `vX.Y.Z`, creates the GitHub release with the changelog entry as notes, builds `uSwitch-vX.Y.Z-arm64.dmg` and `.zip` on a macOS runner, signs the Sparkle `appcast.xml`, and attaches them to the release with a `SHA256SUMS.txt` and a build provenance attestation.
 
 Do not edit `CHANGELOG.md` or `version.txt` in feature PRs. release-please owns them.
 
@@ -38,6 +38,12 @@ The cask lives in [nunoh/homebrew-tap](https://github.com/nunoh/homebrew-tap). I
 ## Rebuilding assets
 
 If the asset build fails after the release exists, run the `Release` workflow manually (Actions → Release → Run workflow) with the tag, e.g. `v0.3.0`. It rebuilds and re-uploads the DMG and zip.
+
+## Sparkle update signing
+
+The app embeds Sparkle's EdDSA public key. Its matching private key is stored in the maintainer's login Keychain under account `com.nh.uswitch`. Once authenticated with `gh auth login`, run `scripts/set-sparkle-secret.sh` to export that key into the repository's `SPARKLE_ED_KEY` Actions secret. The script deletes its temporary export. Keep the Keychain item and a secure backup: losing this key prevents existing self-signed builds from trusting future updates.
+
+The release workflow fails if the secret is missing. It signs the zip and generates a one-item `appcast.xml` pointing to that release's zip, then uploads both as GitHub release assets. The app reads the stable `releases/latest/download/appcast.xml` URL. Sparkle verifies the EdDSA signature before installing. Check that the feed and zip are attached to each release; an appcast from one build must never be paired with a rebuilt zip from another build.
 
 ## Verifying a download
 
@@ -76,7 +82,7 @@ To set them, run `scripts/export-signing-secret.sh`. Keychain Access cannot expo
 
 Keep the cert: a new one changes the signing identity, and every user must grant the permissions again. If you lose it, run `make reset-perms` locally after installing the first build with the new one, and update `SIGN_CERT_SHA1` in `release.yml`.
 
-The release is **not notarized**. The Homebrew cask removes the quarantine flag after install, so brew users skip Gatekeeper. Users who download the DMG approve it once in System Settings → Privacy & Security → Open Anyway. Revisit when a Developer ID is available.
+The release is **not notarized**. The Homebrew cask removes the quarantine flag after install, so brew users skip Gatekeeper. Users who download the DMG approve it once in System Settings → Privacy & Security → Open Anyway. Sparkle uses an additional EdDSA signature for updates. Revisit notarization when a Developer ID is available.
 
 ## Version surfaces
 

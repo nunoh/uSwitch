@@ -5,8 +5,7 @@ import ServiceManagement
 final class MenuBar: NSObject, NSMenuDelegate {
     private var item: NSStatusItem?
     private var launchAtLoginItem: NSMenuItem?
-    private var updateItem: NSMenuItem?
-    private var updateSeparator: NSMenuItem?
+    private var checkUpdateItem: NSMenuItem?
     private let about = AboutWindow()
     private let settings = SettingsWindow()
 
@@ -20,21 +19,6 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         let menu = NSMenu()
         menu.delegate = self
-
-        // Shown only while a newer release is known (see menuWillOpen).
-        let update = NSMenuItem(
-            title: "",
-            action: #selector(openUpdate),
-            keyEquivalent: ""
-        )
-        update.target = self
-        update.isHidden = true
-        menu.addItem(update)
-        updateItem = update
-        let updateSeparator = NSMenuItem.separator()
-        updateSeparator.isHidden = true
-        menu.addItem(updateSeparator)
-        self.updateSeparator = updateSeparator
 
         let settingsItem = NSMenuItem(
             title: "Settings…",
@@ -71,6 +55,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         )
         checkItem.target = self
         menu.addItem(checkItem)
+        checkUpdateItem = checkItem
 
         let quit = NSMenuItem(
             title: "Quit uSwitch",
@@ -99,18 +84,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         launchAtLoginItem?.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        let available = UpdateChecker.shared.available
-        updateItem?.title = available.map { "Update Available: v\($0.version)…" } ?? ""
-        updateItem?.isHidden = available == nil
-        updateSeparator?.isHidden = available == nil
-    }
-
-    @objc private func openUpdate() {
-        UpdateChecker.shared.openAvailable()
+        checkUpdateItem?.isEnabled = UpdateChecker.shared.canCheckForUpdates
     }
 
     @objc private func checkForUpdates() {
-        UpdateChecker.shared.check(userInitiated: true)
+        UpdateChecker.shared.checkForUpdates()
     }
 
     @objc private func toggleLaunchAtLogin() {

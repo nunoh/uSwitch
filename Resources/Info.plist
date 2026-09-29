@@ -30,5 +30,13 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/nunoh/uSwitch/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>LbU3+DWbjSvZOGzpmVvYK5QlMGlqnqjPNWyIhKYoo7k=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
 </dict>
 </plist>

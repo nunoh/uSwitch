@@ -21,8 +21,10 @@ dev: setup-cert
 	@cp .build/debug/uswitch $(DEV_APP)/Contents/MacOS/uswitch
 	@cp Resources/AppIcon.icns $(DEV_APP)/Contents/Resources/AppIcon.icns
 	@cp CHANGELOG.md $(DEV_APP)/Contents/Resources/CHANGELOG.md
+	@mkdir -p $(DEV_APP)/Contents/Frameworks
+	@ditto .build/debug/Sparkle.framework $(DEV_APP)/Contents/Frameworks/Sparkle.framework
 	@sed 's/__VERSION__/dev/g' Resources/Info.plist > $(DEV_APP)/Contents/Info.plist
-	@codesign --sign "$(LOCAL_SIGN_ID)" --force --identifier com.nh.uswitch $(DEV_APP) >/dev/null 2>&1
+	@./scripts/sign-app.sh $(DEV_APP) "$(LOCAL_SIGN_ID)"
 	@pkill -x uswitch 2>/dev/null || true
 	@echo "→ running $(DEV_APP)/Contents/MacOS/uswitch (Ctrl+C to quit)"
 	@$(DEV_APP)/Contents/MacOS/uswitch
@@ -30,15 +32,16 @@ dev: setup-cert
 build-app:
 	@swift build -c release
 	@rm -rf $(RELEASE_APP)
-	@mkdir -p $(RELEASE_APP)/Contents/MacOS $(RELEASE_APP)/Contents/Resources
+	@mkdir -p $(RELEASE_APP)/Contents/MacOS $(RELEASE_APP)/Contents/Resources $(RELEASE_APP)/Contents/Frameworks
 	@cp .build/release/uswitch $(RELEASE_APP)/Contents/MacOS/uswitch
 	@cp Resources/AppIcon.icns $(RELEASE_APP)/Contents/Resources/AppIcon.icns
 	@cp CHANGELOG.md $(RELEASE_APP)/Contents/Resources/CHANGELOG.md
+	@ditto .build/release/Sparkle.framework $(RELEASE_APP)/Contents/Frameworks/Sparkle.framework
 	@sed 's/__VERSION__/$(VERSION)/g' Resources/Info.plist > $(RELEASE_APP)/Contents/Info.plist
 	@file $(RELEASE_APP)/Contents/MacOS/uswitch | grep -q 'arm64'
 
 bundle: setup-cert build-app
-	@codesign --sign "$(LOCAL_SIGN_ID)" --force --deep --identifier com.nh.uswitch $(RELEASE_APP) >/dev/null 2>&1
+	@./scripts/sign-app.sh $(RELEASE_APP) "$(LOCAL_SIGN_ID)"
 	@echo "✅ built $(RELEASE_APP) (v$(VERSION), Apple Silicon, local signature)"
 
 # Releases carry the same self-signed certificate as local builds (CI imports
