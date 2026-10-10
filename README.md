@@ -69,16 +69,20 @@ On first launch a setup window lists both, with a button that opens the right pa
 | Key | Action |
 | --- | --- |
 | <kbd>Cmd</kbd>+<kbd>Tab</kbd> | Open switcher (current Space) / cycle forward |
-| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle backward |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Open switcher / cycle backward |
 | <kbd>Option</kbd>+<kbd>Tab</kbd> | Open all-Spaces overview / cycle forward |
-| <kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Overview, cycle backward |
+| <kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Overview / cycle backward |
+| <kbd>Fn</kbd> (while open) | Step through minimized windows |
 | Release <kbd>Cmd</kbd> or <kbd>Option</kbd> | Raise selected window |
 | <kbd>Esc</kbd> | Cancel (swallowed — won't trigger system shortcuts) |
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> (while open) | Quit the selected app, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> (while open) | Close the selected window, stay in the switcher |
 | <kbd>Cmd</kbd>+<kbd>M</kbd> (while open) | Minimize the selected window, stay in the switcher |
+| <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> (while open) | Switch straight to that window of the current Space |
 | <kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>F</kbd> (while open) | Toggle the all-Spaces overview on/off |
 | <kbd>Cmd</kbd>+<kbd>,</kbd> (while open) | Open Settings |
+
+These are the default bindings. Shift reverses the Tab cycle. Fn while the switcher is open steps through minimized windows; hold Fn to keep stepping, using your macOS keyboard repeat delay and speed. Cmd+Fn+Tab and Option+Fn+Tab open cycling through all windows. Shift+Tab alone never opens the switcher.
 
 The menu bar icon has **Settings…**, **Launch at Login**, **About**, and **Check for Updates…** (plus **Quit**). Settings covers the two shortcuts, minimized-window behaviour, thumbnail size, overview scaling, the flick delay, and automatic updates. Sparkle checks daily and can download signed updates and install them when uSwitch quits. The update settings apply live.
 
