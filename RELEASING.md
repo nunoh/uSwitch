@@ -32,6 +32,10 @@ Branch from `main`, open the PR against `main`, and squash-merge it. Merge the r
 
 The stable feed is `releases/latest/download/appcast.xml` (`SUFeedURL`). GitHub's `latest` skips prereleases, so neither the stable feed nor the Homebrew tap sees betas. With **Receive beta updates** on, the app reads `releases/download/beta/appcast.xml` instead. Beta builds turn the setting on by default.
 
+### Release notes
+
+`scripts/release-notes.sh` writes the notes that Sparkle shows in its update window. A stable release uses its `CHANGELOG.md` entry. A beta lists the `feat`, `perf` and `fix` commits since the last stable tag, and CI also adds them to the bundled changelog as **Unreleased**, so About → Changelog shows them.
+
 ## Writing PR titles
 
 The PR title is the changelog entry, so write it for users.

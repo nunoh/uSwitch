@@ -60,10 +60,14 @@ jobs:
       - name: Build DMG and zip
         run: make dmg VERSION="${TAG#v}"
 
+      # The update window shows this version's CHANGELOG.md entry.
+      - name: Write the release notes
+        run: scripts/release-notes.sh "$TAG" > "$RUNNER_TEMP/notes.md"
+
       - name: Sign the Sparkle update feed
         env:
           SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
-        run: scripts/make-appcast.sh "dist/uSwitch-${TAG}-arm64.zip" "$TAG"
+        run: scripts/make-appcast.sh "dist/uSwitch-${TAG}-arm64.zip" "$TAG" "$RUNNER_TEMP/notes.md"
 
       - name: Check the signature
         run: scripts/check-signature.sh dist/uSwitch.app
