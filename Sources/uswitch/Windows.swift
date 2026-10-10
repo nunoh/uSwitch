@@ -6,6 +6,12 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+// Private HIServices call that builds an AX element from a raw remote token
+// (pid + element id). It reaches windows that kAXWindowsAttribute leaves out,
+// such as the windows of an app on another Space.
+@_silgen_name("_AXUIElementCreateWithRemoteToken")
+private func _AXUIElementCreateWithRemoteToken(_ token: CFData) -> Unmanaged<AXUIElement>?
+
 struct WindowInfo: Identifiable {
     let id: CGWindowID
     let pid: pid_t
@@ -264,13 +270,7 @@ enum Windows {
     // it through AX leaves the frontmost app and the uSwitch overlay untouched,
     // unlike sending Cmd+W, which only the active app would handle.
     static func close(_ window: WindowInfo) -> Bool {
-        let app = AXUIElementCreateApplication(window.pid)
-        AXUIElementSetMessagingTimeout(app, 0.25)
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
-              let axWindows = ref as? [AXUIElement],
-              let axWin = matchingAXWindow(for: window, in: axWindows)
-        else {
+        guard let axWin = axWindow(for: window) else {
             print("close: no AX window matching WindowServer id \(window.id)")
             return false
         }
@@ -290,15 +290,16 @@ enum Windows {
     // Minimize a single window through AX, leaving the frontmost app and the
     // uSwitch overlay where they are.
     static func minimize(_ window: WindowInfo) -> Bool {
-        let app = AXUIElementCreateApplication(window.pid)
-        AXUIElementSetMessagingTimeout(app, 0.25)
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
-              let axWindows = ref as? [AXUIElement],
-              let axWin = matchingAXWindow(for: window, in: axWindows)
-        else {
+        guard let axWin = axWindow(for: window) else {
             print("minimize: no AX window matching WindowServer id \(window.id)")
             return false
+        }
+        // A window on another Space: set the attribute directly. Pressing the
+        // button there plays the Dock animation on the current screen.
+        if !window.isOnScreen {
+            let result = AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            print("minimize: set AXMinimized for off-screen window id \(window.id) (result=\(result.rawValue))")
+            return result == .success
         }
         var buttonRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(axWin, kAXMinimizeButtonAttribute as CFString, &buttonRef) == .success,
@@ -312,6 +313,18 @@ enum Windows {
         // attribute directly.
         let result = AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
         print("minimize: set AXMinimized for window id \(window.id) (result=\(result.rawValue))")
+        return result == .success
+    }
+
+    // Restore a minimized window through AX. Like minimize, it leaves the
+    // frontmost app and the uSwitch overlay where they are.
+    static func unminimize(_ window: WindowInfo) -> Bool {
+        guard let axWin = axWindow(for: window) else {
+            print("unminimize: no AX window matching WindowServer id \(window.id)")
+            return false
+        }
+        let result = AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        print("unminimize: cleared AXMinimized for window id \(window.id) (result=\(result.rawValue))")
         return result == .success
     }
 
@@ -415,6 +428,53 @@ enum Windows {
             return nil
         }
         return titleRef as? String
+    }
+
+    // The AX element for a window, wherever it is. kAXWindowsAttribute only
+    // lists the windows on the current Space, so a window on another Space is
+    // found by its WindowServer id among the app's raw AX elements instead.
+    private static func axWindow(for window: WindowInfo) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
+           let axWindows = ref as? [AXUIElement],
+           let match = matchingAXWindow(for: window, in: axWindows) {
+            return match
+        }
+        return remoteAXWindow(pid: window.pid, windowID: window.id)
+    }
+
+    // Walk the app's AX element ids and return the one whose WindowServer id
+    // matches. The token layout is pid (4 bytes), 0 (4 bytes), the 0x636f636f
+    // marker (4 bytes), then the element id (8 bytes). Window elements have low ids, so
+    // the walk is bounded and stops at the first match.
+    private static func remoteAXWindow(pid: pid_t, windowID: CGWindowID) -> AXUIElement? {
+        var token = Data(count: 20)
+        token.withUnsafeMutableBytes { bytes in
+            bytes.storeBytes(of: pid, toByteOffset: 0, as: pid_t.self)
+            bytes.storeBytes(of: 0, toByteOffset: 4, as: Int32.self)
+            bytes.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self)
+        }
+        let deadline = Date().addingTimeInterval(0.5)
+        for elementID: UInt64 in 0..<1000 {
+            guard Date() < deadline else { break }
+            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
+            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue()
+            else { continue }
+            AXUIElementSetMessagingTimeout(element, 0.05)
+            // A window's buttons report the same window id, so check the role.
+            var id: CGWindowID = 0
+            var role: CFTypeRef?
+            if _AXUIElementGetWindow(element, &id) == .success, id == windowID,
+               AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+               role as? String == kAXWindowRole as String {
+                print("ax: found window id \(windowID) through remote element \(elementID)")
+                return element
+            }
+        }
+        print("ax: no remote element for window id \(windowID)")
+        return nil
     }
 
     private static func matchingAXWindow(

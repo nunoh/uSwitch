@@ -34,6 +34,9 @@ private let minimizedTileSpacing: CGFloat = 8
 // Extra breathing room above the minimized strip so the icons read as their
 // own row rather than crowding the window thumbnails above them.
 private let minimizedStripTopMargin: CGFloat = 8
+// Gap between Space sections in the overview, and each section's inset.
+private let overviewSectionSpacing: CGFloat = 8
+private let overviewSectionPadding: CGFloat = 10
 private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
     .moveToActiveSpace,
     .transient,
@@ -71,6 +74,20 @@ struct OverlaySection: Identifiable {
     let minimizedPerRow: Int
     let active: [IndexedWindow]
     let minimized: [IndexedWindow]
+
+    // A copy with the minimized strip removed and the given title.
+    func withoutMinimized(title: String?) -> OverlaySection {
+        OverlaySection(
+            id: id,
+            title: title,
+            isCurrent: isCurrent,
+            scale: scale,
+            maxTilesPerRow: maxTilesPerRow,
+            minimizedPerRow: minimizedPerRow,
+            active: active,
+            minimized: []
+        )
+    }
 }
 
 struct ThumbnailTile: View {
@@ -205,23 +222,11 @@ struct MinimizedTile: View {
 
 struct SectionHeader: View {
     let title: String
-    let isCurrent: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(0.75))
-            if isCurrent {
-                Text("current")
-                    .font(.system(size: 9, weight: .bold))
-                    .textCase(.uppercase)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.accentColor))
-                    .foregroundStyle(.white)
-            }
-        }
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white.opacity(0.75))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 2)
     }
@@ -269,9 +274,12 @@ struct OverlayView: View {
     private var onHover: (Int) -> Void { model.onHover }
     private var onHoverEnd: (Int) -> Void { model.onHoverEnd }
 
+    // The overview always lists its Spaces, even the empty ones.
     private var isEmpty: Bool {
-        sections.allSatisfy { $0.active.isEmpty && $0.minimized.isEmpty }
+        !isOverview && sections.allSatisfy { $0.active.isEmpty && $0.minimized.isEmpty }
     }
+
+    private var isOverview: Bool { sections.contains { $0.title != nil } }
 
     // Only the all-Spaces overview tints its current Space (those sections carry
     // titles; the single current-Space switcher section does not).
@@ -280,7 +288,7 @@ struct OverlayView: View {
     }
 
     var body: some View {
-        let overview = sections.contains { $0.title != nil }
+        let overview = isOverview
         Group {
             if isEmpty {
                 Color.clear.frame(width: tile.width * 0.25, height: tile.height * 0.25)
@@ -289,41 +297,61 @@ struct OverlayView: View {
                 // overlay taller than the screen, and it must scroll down rather
                 // than run off the edge.
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: overviewSectionSpacing) {
                         ForEach(sections) { section in
-                            if !section.active.isEmpty || !section.minimized.isEmpty {
-                                VStack(alignment: .leading, spacing: tileSpacing) {
-                                    if let title = section.title {
-                                        SectionHeader(title: title, isCurrent: section.isCurrent)
-                                    }
-                                    activeRows(
-                                        section.active,
-                                        scale: section.scale,
-                                        maxTilesPerRow: section.maxTilesPerRow
-                                    )
-                                    if !section.minimized.isEmpty {
-                                        minimizedBlock(
-                                            section.minimized,
-                                            maxTilesPerRow: section.minimizedPerRow
-                                        )
-                                    }
+                            VStack(alignment: .leading, spacing: tileSpacing) {
+                                if let title = section.title {
+                                    SectionHeader(title: title)
                                 }
-                                // In the all-Spaces overview, tint the current
-                                // Space's section so it reads at a glance even
-                                // without noticing the badge.
-                                .padding(overview ? 10 : 0)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(highlight(section) ? Color.accentColor.opacity(0.06) : .clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .strokeBorder(
-                                            highlight(section) ? Color.accentColor.opacity(0.25) : .clear,
-                                            lineWidth: 1
+                                if section.active.isEmpty && section.minimized.isEmpty {
+                                    Text("No windows")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.45))
+                                        .padding(.leading, 2)
+                                } else {
+                                    // Centered in the section, so the current
+                                    // Space's tiles keep the same horizontal
+                                    // position as in the plain switcher. The
+                                    // minimized strip is centered under them.
+                                    VStack(alignment: .center, spacing: tileSpacing) {
+                                        activeRows(
+                                            section.active,
+                                            scale: section.scale,
+                                            maxTilesPerRow: section.maxTilesPerRow
                                         )
-                                )
+                                        if !section.minimized.isEmpty {
+                                            minimizedBlock(
+                                                section.minimized,
+                                                maxTilesPerRow: section.minimizedPerRow
+                                            )
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                }
                             }
+                            // In the all-Spaces overview, tint the current
+                            // Space's section so it reads at a glance.
+                            .padding(overview ? overviewSectionPadding : 0)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(highlight(section) ? Color.accentColor.opacity(0.06) : .clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .strokeBorder(
+                                        highlight(section) ? Color.accentColor.opacity(0.25) : .clear,
+                                        lineWidth: 1
+                                    )
+                            )
+                            // The other Spaces fade in when the overview opens.
+                            // The transition carries its own animation, so the
+                            // layout still changes in one step and the current
+                            // Space's tiles do not move. Removal is instant, so
+                            // a leaving section never holds its space.
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(.easeOut(duration: 0.2)),
+                                removal: .identity
+                            ))
                         }
                     }
                     .padding(overlayPadding)
@@ -369,7 +397,7 @@ struct OverlayView: View {
     @ViewBuilder
     private func minimizedBlock(_ windows: [IndexedWindow], maxTilesPerRow: Int) -> some View {
         let rows = chunked(windows, size: max(1, maxTilesPerRow))
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .center, spacing: 6) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: minimizedTileSpacing) {
                     ForEach(row) { item in
@@ -455,6 +483,9 @@ final class Switcher {
     // minimized windows grows it downward instead of nudging the live
     // thumbnails up.
     private var anchorHeight: CGFloat = 0
+    // How far below its plain-switcher position the overview's panel top sits,
+    // so the current Space's tiles stay put when switching between the two.
+    private var anchorOffset: CGFloat = 0
     // True while the minimized-window cycle has selected a minimized tile.
     private var browsingMinimized = false
     private var openMouseLocation: CGPoint = .zero
@@ -551,7 +582,10 @@ final class Switcher {
             selectedIndex = initialSelection()
         }
         hoveredIndex = nil
-        render(animated: true)
+        // No animation: the panel's frame and its content would animate on two
+        // separate curves, and the current Space's tiles would drift while they
+        // settle. A single step keeps them exactly in place.
+        render()
         captureMissingThumbnails()
     }
 
@@ -647,7 +681,8 @@ final class Switcher {
                 minimized: parts.minimized
             ))
         }
-        return result.filter { !$0.active.isEmpty || !$0.minimized.isEmpty }
+        // Empty Spaces stay listed; the overlay marks them as empty.
+        return result
     }
 
     // One-shot capture for windows missing from the cache. Invalidates any
@@ -715,8 +750,13 @@ final class Switcher {
         scheduleRefresh(after: 0.35)
     }
 
+    // Cmd+M toggles: an open window is minimized, a minimized one restored.
     func minimizeSelected() {
         guard isOpen, let target = selectedTarget else { return }
+        if target.isMinimized {
+            restore(target)
+            return
+        }
         print("minimize: [\(target.pid)] \(target.appName) — \(target.title)")
         // Move the tile into the strip the instant the key is pressed. The AX
         // round trip can block the main thread for a long time on a busy app
@@ -728,6 +768,57 @@ final class Switcher {
             // The app refused to minimize: put the tile back.
             guard !ok else { return }
             await self?.scheduleRefresh(after: 0.2)
+        }
+    }
+
+    private func restore(_ target: WindowInfo) {
+        print("unminimize: [\(target.pid)] \(target.appName) — \(target.title)")
+        // Same as minimize: move the tile at once, and run the AX call off the
+        // main thread.
+        moveToActive(windowID: target.id)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let ok = Windows.unminimize(target)
+            // The app refused to restore: put the tile back.
+            guard ok else {
+                await self?.scheduleRefresh(after: 0.2)
+                return
+            }
+            // A live thumbnail needs the window back on screen, so capture it
+            // once the restore animation has finished.
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await self?.captureRestoredThumbnail(of: target.id)
+        }
+    }
+
+    // The restored window joins the front of its Space's active row and keeps
+    // the selection, so a second Cmd+M minimizes it again.
+    private func moveToActive(windowID: CGWindowID) {
+        for i in sections.indices {
+            guard let idx = sections[i].minimized.firstIndex(where: { $0.id == windowID }) else { continue }
+            var window = sections[i].minimized.remove(at: idx)
+            window.isMinimized = false
+            window.isOnScreen = sections[i].isCurrent
+            sections[i].active.insert(window, at: 0)
+            if thumbnails[windowID] == nil, let cached = cache.image(for: windowID) {
+                thumbnails[windowID] = cached
+            }
+            break
+        }
+        hoveredIndex = nil
+        browsingMinimized = false
+        if let index = windows.firstIndex(where: { $0.id == windowID }) {
+            selectedIndex = index
+        }
+        render(animated: true, flight: true)
+    }
+
+    // Replace the cached (pre-minimize) thumbnail with a fresh capture.
+    private func captureRestoredThumbnail(of id: CGWindowID) {
+        guard isOpen, windows.contains(where: { $0.id == id && $0.isOnScreen }) else { return }
+        let generation = openGeneration
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let img = Capture.snapshot(of: id) else { return }
+            await self?.applyMissing(img, for: id, generation: generation)
         }
     }
 
@@ -984,7 +1075,13 @@ final class Switcher {
         // Measure against a throwaway host so the panel is sized from the new
         // state right away, rather than waiting on the live host's update pass.
         let size = measure(sections: modelSections, metrics: metrics, maxHeight: maxH)
-        anchorHeight = anchorHeight(for: modelSections, fullHeight: size.height)
+        if let pin = overviewPin(for: modelSections, metrics: metrics, maxHeight: maxH) {
+            anchorHeight = pin.anchorHeight
+            anchorOffset = pin.offset
+        } else {
+            anchorHeight = anchorHeight(for: modelSections, fullHeight: size.height)
+            anchorOffset = 0
+        }
         resizePanel(to: size, animated: animated, flight: flight)
     }
 
@@ -1011,18 +1108,7 @@ final class Switcher {
         let hasActive = sections.contains { !$0.active.isEmpty }
         guard hasMinimized, hasActive else { return fullHeight }
 
-        let stripped = sections.map { section in
-            OverlaySection(
-                id: section.id,
-                title: section.title,
-                isCurrent: section.isCurrent,
-                scale: section.scale,
-                maxTilesPerRow: section.maxTilesPerRow,
-                minimizedPerRow: section.minimizedPerRow,
-                active: section.active,
-                minimized: []
-            )
-        }
+        let stripped = sections.map { $0.withoutMinimized(title: $0.title) }
         // Thumbnails and icons never change a tile's frame, so an empty map is
         // enough to measure the layout.
         let probe = OverlayModel()
@@ -1031,6 +1117,39 @@ final class Switcher {
         probe.maxHeight = overlayMaxHeight()
         probe.selectedIndex = -1
         return NSHostingView(rootView: OverlayRoot(model: probe)).fittingSize.height
+    }
+
+    // In the overview, place the panel so the current Space's tiles land exactly
+    // where the plain switcher draws them. Returns the plain switcher's anchor
+    // height and how much lower the overview's top edge must sit, or nil when
+    // the current Space has no thumbnails to pin.
+    private func overviewPin(
+        for sections: [OverlaySection],
+        metrics: TileMetrics,
+        maxHeight: CGFloat
+    ) -> (anchorHeight: CGFloat, offset: CGFloat)? {
+        guard mode == .allSpaces,
+              let i = sections.firstIndex(where: { $0.isCurrent }),
+              !sections[i].active.isEmpty
+        else { return nil }
+        let current = sections[i]
+        // The plain switcher shows the same section untitled; its height without
+        // the minimized strip is the anchor it is centered on.
+        let single = measure(
+            sections: [current.withoutMinimized(title: nil)],
+            metrics: metrics,
+            maxHeight: maxHeight
+        ).height
+        // The Spaces above the current one, each followed by the section gap.
+        let above = i == 0 ? 0 : measure(
+            sections: Array(sections[..<i]),
+            metrics: metrics,
+            maxHeight: maxHeight
+        ).height - overlayPadding * 2 + overviewSectionSpacing
+        let header = NSHostingView(
+            rootView: SectionHeader(title: current.title ?? "")
+        ).fittingSize.height
+        return (single, above + overviewSectionPadding + header + tileSpacing)
     }
 
     // Flatten the sections into the display model, assigning each window its
@@ -1048,7 +1167,9 @@ final class Switcher {
             }
             let scale: CGFloat = section.isCurrent ? 1 : CGFloat(Settings.shared.otherSpaceScale)
             return OverlaySection(
-                id: section.spaceID.map(String.init) ?? "flat",
+                // The current Space keeps one id in both modes, so toggling the
+                // overview keeps its view instead of replacing it.
+                id: section.isCurrent ? "current" : section.spaceID.map(String.init) ?? "flat",
                 title: section.title,
                 isCurrent: section.isCurrent,
                 scale: scale,
@@ -1071,7 +1192,7 @@ final class Switcher {
     // centered position of `anchorHeight`, so extra (minimized) rows extend the
     // overlay downward rather than shifting the live thumbnails upward.
     private func resizePanel(to size: CGSize, animated: Bool, flight: Bool = false) {
-        guard animated, panel.isVisible, let screen = openScreen else {
+        guard panel.isVisible, let screen = openScreen else {
             panel.setContentSize(size)
             return
         }
@@ -1081,6 +1202,13 @@ final class Switcher {
             width: size.width,
             height: size.height
         )
+        guard animated else {
+            // Lay the new content out before the frame lands, so no pass shows
+            // the old content at the new position.
+            hosting?.layoutSubtreeIfNeeded()
+            panel.setFrame(frame, display: true)
+            return
+        }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = flight ? minimizeFlightDuration : tileRemovalDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -1089,14 +1217,16 @@ final class Switcher {
     }
 
     // Bottom edge for a panel of `size` whose top sits where a vertically
-    // centered, `anchorHeight`-tall overlay's top would. When nothing extra is
-    // shown (anchor == height) this is plain centering. The bottom is clamped
-    // so a very tall minimized strip cannot push the overlay off screen; the
-    // scroll view then handles the overflow.
+    // centered, `anchorHeight`-tall overlay's top would, lowered by
+    // `anchorOffset` in the overview. When nothing extra is shown (anchor ==
+    // height, no offset) this is plain centering. The panel is clamped to the
+    // visible frame so a tall strip or many Spaces cannot push it off screen;
+    // the scroll view then handles the overflow.
     private func anchorOriginY(for size: CGSize, on screen: NSScreen) -> CGFloat {
-        let anchored = screen.frame.midY - size.height + anchorHeight / 2
+        let top = screen.frame.midY + anchorHeight / 2 + anchorOffset
         let minY = screen.visibleFrame.minY + overlayVerticalMargin
-        return max(anchored, minY)
+        let maxY = screen.visibleFrame.maxY - overlayVerticalMargin - size.height
+        return max(min(top - size.height, maxY), minY)
     }
 
     private func currentScreen() -> NSScreen? {
