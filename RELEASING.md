@@ -4,13 +4,33 @@ Notes for the project maintainer. Not user-facing.
 
 ## Flow
 
+Two long-lived branches:
+
+- **`dev`** is the default branch. Feature PRs target it. Every push to `dev` publishes a beta.
+- **`main`** holds what is released as stable. It only takes promotion PRs from `dev`, hotfix PRs, and the release PR.
+
 Releases are automated with [release-please](https://github.com/googleapis/release-please) and GitHub Actions.
 
-1. **Every change lands on `main` through a PR.** Direct pushes are blocked. PRs are squash-merged and the **PR title becomes the commit subject**, so it must be a [Conventional Commit](https://www.conventionalcommits.org/) (`feat: …`, `fix: …`). The `PR title` check enforces this, and `CI` must pass.
-2. **release-please keeps a release PR open** (`chore: release vX.Y.Z`). Each merge to `main` updates it: next version, `CHANGELOG.md` entry, `version.txt`.
-3. **Merge the release PR to ship.** The `Release` workflow then tags `vX.Y.Z`, creates the GitHub release with the changelog entry as notes, builds `uSwitch-vX.Y.Z-arm64.dmg` and `.zip` on a macOS runner, signs the Sparkle `appcast.xml`, and attaches them to the release with a `SHA256SUMS.txt` and a build provenance attestation.
+1. **Every change lands through a PR.** Direct pushes to `dev` and `main` are blocked. Feature PRs are squash-merged and the **PR title becomes the commit subject**, so it must be a [Conventional Commit](https://www.conventionalcommits.org/) (`feat: …`, `fix: …`). The `PR title` check enforces this, and `CI` must pass.
+2. **Each merge to `dev` publishes a beta.** The `Beta` workflow builds `uSwitch-vX.Y.Z-beta.N-arm64.dmg` and `.zip` (X.Y.Z is the last stable version, N the build number) and replaces the `beta` prerelease. Users who turn on **Receive beta updates** get it through Sparkle.
+3. **Promote `dev` to `main`** when the betas are good: open a PR from `dev` to `main`, titled `chore: promote dev to main`, and merge it with **Create a merge commit**. Do not squash: release-please reads the individual `feat:`/`fix:` commits from `dev`.
+4. **release-please keeps a release PR open** on `main` (`chore: release vX.Y.Z`). Each merge to `main` updates it: next version, `CHANGELOG.md` entry, `version.txt`.
+5. **Merge the release PR to ship.** The `Release` workflow then tags `vX.Y.Z`, creates the GitHub release with the changelog entry as notes, builds `uSwitch-vX.Y.Z-arm64.dmg` and `.zip` on a macOS runner, signs the Sparkle `appcast.xml`, and attaches them to the release with a `SHA256SUMS.txt` and a build provenance attestation.
+6. **Merge `main` back into `dev`.** The `Sync dev` workflow keeps a `chore: sync main into dev` PR open whenever `main` has commits that `dev` lacks. Merge it with **Create a merge commit**. The merge triggers a new beta with the new version.
 
 Do not edit `CHANGELOG.md` or `version.txt` in feature PRs. release-please owns them.
+
+### Hotfixes
+
+Branch from `main`, open the PR against `main`, and squash-merge it. Merge the release PR for a patch release, then merge the sync PR so `dev` gets the fix.
+
+### Versions and build numbers
+
+`CFBundleShortVersionString` is the version people see (`0.6.0`, `0.6.0-beta.57`). `CFBundleVersion` is the build number: the commit count (`git rev-list --count HEAD`), so CI checks out with `fetch-depth: 0`. Sparkle compares build numbers, so stable and beta builds share one order. A beta user who turns betas off keeps the beta until a stable build with a higher number ships.
+
+### Beta feed
+
+The stable feed is `releases/latest/download/appcast.xml` (`SUFeedURL`). GitHub's `latest` skips prereleases, so neither the stable feed nor the Homebrew tap sees betas. With **Receive beta updates** on, the app reads `releases/download/beta/appcast.xml` instead. Beta builds turn the setting on by default.
 
 ## Writing PR titles
 
@@ -37,7 +57,7 @@ The cask lives in [nunoh/homebrew-tap](https://github.com/nunoh/homebrew-tap). I
 
 ## Rebuilding assets
 
-If the asset build fails after the release exists, run the `Release` workflow manually (Actions → Release → Run workflow) with the tag, e.g. `v0.3.0`. It rebuilds and re-uploads the DMG and zip.
+If the asset build fails after the release exists, run the `Release` workflow manually from `main` (Actions → Release → Run workflow) with the tag, e.g. `v0.3.0`. It rebuilds and re-uploads the DMG and zip. To rebuild the beta, run the `Beta` workflow on `dev`.
 
 ## Sparkle update signing
 
@@ -80,7 +100,7 @@ CI imports the cert from two secrets and fails the release if the app is not sig
 
 To set them, run `scripts/export-signing-secret.sh`. Keychain Access cannot export the cert as `.p12`, because `setup-cert.sh` imports the key and cert separately. The script exports the keychain identities to a temp dir, keeps the key that matches the cert, rebuilds a `.p12` with just that pair, checks that it imports, and sets both secrets. macOS asks to allow each key export.
 
-Keep the cert: a new one changes the signing identity, and every user must grant the permissions again. If you lose it, run `make reset-perms` locally after installing the first build with the new one, and update `SIGN_CERT_SHA1` in `release.yml`.
+Keep the cert: a new one changes the signing identity, and every user must grant the permissions again. If you lose it, run `make reset-perms` locally after installing the first build with the new one, and update `SIGN_CERT_SHA1` in `scripts/check-signature.sh`.
 
 The release is **not notarized**. The Homebrew cask removes the quarantine flag after install, so brew users skip Gatekeeper. Users who download the DMG approve it once in System Settings → Privacy & Security → Open Anyway. Sparkle uses an additional EdDSA signature for updates. Revisit notarization when a Developer ID is available.
 
