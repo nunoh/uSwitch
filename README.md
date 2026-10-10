@@ -42,10 +42,10 @@ No admin rights needed. Gatekeeper only checks apps that carry the quarantine fl
 
 The extension supports GNOME Shell 48–50 and has been tested on Ubuntu 26.04 with GNOME Shell 50.1 on Wayland.
 
-Clone the repository, then install and enable the extension:
+Clone the stable branch, then install and enable the extension:
 
 ```sh
-git clone https://github.com/nunoh/uSwitch.git
+git clone --branch main https://github.com/nunoh/uSwitch.git
 cd uSwitch
 make install-gnome-extension
 gnome-extensions enable uswitch@nh.com
