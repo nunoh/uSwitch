@@ -37,6 +37,21 @@ jobs:
           echo "BUILD=$build" >> "$GITHUB_ENV"
           echo "VERSION=$(cat version.txt)-beta.$build" >> "$GITHUB_ENV"
 
+      # The update window and About → Changelog list what this beta adds
+      # since the last stable release. The CHANGELOG.md change stays in CI.
+      - name: Write the release notes
+        run: |
+          scripts/release-notes.sh unreleased > "$RUNNER_TEMP/notes.md"
+          {
+            echo "# Changelog"
+            echo
+            echo "## Unreleased ($VERSION)"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+            tail -n +2 CHANGELOG.md
+          } > "$RUNNER_TEMP/CHANGELOG.md"
+          mv "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
+
       - name: Import the signing certificate
         env:
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
@@ -49,7 +64,7 @@ jobs:
       - name: Sign the Sparkle update feed
         env:
           SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
-        run: scripts/make-appcast.sh "dist/uSwitch-v${VERSION}-arm64.zip" beta
+        run: scripts/make-appcast.sh "dist/uSwitch-v${VERSION}-arm64.zip" beta "$RUNNER_TEMP/notes.md"
 
       - name: Check the signature
         run: scripts/check-signature.sh dist/uSwitch.app
@@ -75,7 +90,7 @@ jobs:
             echo
             echo "Changes since $last:"
             echo
-            git log --no-merges --format='- %s' "$last..HEAD"
+            cat "$RUNNER_TEMP/notes.md"
           } > dist/notes.md
           gh release delete beta --cleanup-tag --yes 2>/dev/null || true
           gh release create beta \
