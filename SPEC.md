@@ -30,7 +30,8 @@
 
 ## Overview grouping
 - One section per Space, in Space order (Space 1, Space 2, …), labelled "Space N"
-  (fullscreen Spaces keep their name), with a "current" badge on the active one.
+  (fullscreen Spaces keep their name). The active one is tinted; empty Spaces
+  stay listed with a "No windows" note.
 - Non-current Spaces render slightly smaller, so the active Space stands out.
 - Membership comes from WindowServer's per-Space lists: the Space's visible
   windows, plus any window Accessibility confirms as minimized. Leftover
