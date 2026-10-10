@@ -10,11 +10,21 @@ private let kVK_F: CGKeyCode = 3
 private let kVK_Comma: CGKeyCode = 43
 private let kVK_Function: CGKeyCode = 63
 
+// Number-row digits, as they appear in Hotkey.keyName. Cmd + one of these jumps
+// straight to that tile while the overlay is open.
+private let kVK_Digits: [CGKeyCode: Int] = [
+    18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9,
+]
+
 final class EventTap {
     var onTrigger: (() -> Void)?
     var onTriggerOverview: (() -> Void)?
+    var onTriggerAll: (() -> Void)?
+    var onTriggerOverviewAll: (() -> Void)?
     var onCycle: ((Bool) -> Void)?  // backward = true
     var onCycleMinimized: ((Bool) -> Void)?  // backward = true
+    // Cmd + 1…9 while open: select the Nth active tile of the current Space.
+    var onSelectNumber: ((Int) -> Void)?
     var onEscape: (() -> Void)?
     var onCommit: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -36,7 +46,40 @@ final class EventTap {
     // The shortcut that opened the current session, used to cycle and to know
     // which release commits. nil when idle.
     private var session: Hotkey?
+    // Shift-only hotkeys have no commit modifiers; release Shift to commit.
+    private var sessionReleaseOnShift = false
     private var fnWasDown = false
+    private var minimizedRepeatTimer: Timer?
+    private var repeatBackward = false
+
+    deinit { minimizedRepeatTimer?.invalidate() }
+
+    // Modifier keys do not generate key repeats, so use the same delay and
+    // interval as macOS keyboard repeat. Each explicit Tab restarts the delay
+    // to avoid cycling twice while Tab itself is repeating.
+    private func startMinimizedRepeat() {
+        stopMinimizedRepeat()
+        guard isActive(), session != nil, !isSuspended() else { return }
+        let timer = Timer(
+            fire: Date(timeIntervalSinceNow: NSEvent.keyRepeatDelay),
+            interval: NSEvent.keyRepeatInterval,
+            repeats: true
+        ) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            guard self.isActive(), self.session != nil, !self.isSuspended() else {
+                self.stopMinimizedRepeat()
+                return
+            }
+            self.onCycleMinimized?(self.repeatBackward)
+        }
+        minimizedRepeatTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopMinimizedRepeat() {
+        minimizedRepeatTimer?.invalidate()
+        minimizedRepeatTimer = nil
+    }
 
     func install() -> Bool {
         let mask: CGEventMask =
@@ -69,6 +112,7 @@ final class EventTap {
     // Accessibility can stall every keyboard and mouse event system-wide, so
     // it must come out as soon as the grant is gone.
     func uninstall() {
+        stopMinimizedRepeat()
         guard let tap else { return }
         CGEvent.tapEnable(tap: tap, enable: false)
         if let source { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes) }
@@ -76,11 +120,13 @@ final class EventTap {
         self.tap = nil
         source = nil
         session = nil
+        sessionReleaseOnShift = false
         fnWasDown = false
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            stopMinimizedRepeat()
             // Re-enabling after Accessibility was revoked (e.g. `tccutil
             // reset`) loops disable/enable and freezes input system-wide.
             guard AXIsProcessTrusted() else {
@@ -94,37 +140,65 @@ final class EventTap {
         }
 
         // A shortcut recorder is capturing keys; let them all through.
-        if isSuspended() { return Unmanaged.passUnretained(event) }
+        if isSuspended() {
+            stopMinimizedRepeat()
+            return Unmanaged.passUnretained(event)
+        }
 
         let flags = event.flags
         let keycode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let shift = flags.contains(.maskShift)
         let option = flags.contains(.maskAlternate)
         let control = flags.contains(.maskControl)
+        let backward = shift
+        repeatBackward = backward
 
         let activeNow = isActive()
         // A session ends through commit or cancel; clear the remembered shortcut
         // so the next press starts fresh.
-        if !activeNow { session = nil }
+        if !activeNow {
+            stopMinimizedRepeat()
+            session = nil
+            sessionReleaseOnShift = false
+        }
 
         if type == .keyDown {
             // Cycling: the trigger key again while its modifiers are still held.
             if activeNow, let session, keycode == session.keyCode {
-                print("tap: cycle (shift=\(shift))")
-                onCycle?(shift)
+                stopMinimizedRepeat()
+                print("tap: cycle (backward=\(backward))")
+                onCycle?(backward)
                 return nil
             }
             if !activeNow {
+                // macOS reports Fn through `.flagsChanged`, and the flag is often
+                // missing from the keydown's own flags, so also consult the
+                // state tracked from those events.
+                let fn = flags.contains(.maskSecondaryFn) || fnWasDown
+                // The trigger key cycles open windows; the trigger key plus Fn
+                // cycles every window (open and minimized together).
                 if primaryHotkey.matches(keycode, flags) {
-                    print("tap: trigger \(primaryHotkey.displayString)")
                     session = primaryHotkey
-                    onTrigger?()
+                    sessionReleaseOnShift = primaryHotkey.commitModifiers.isEmpty
+                    if fn {
+                        print("tap: trigger all (fn) \(primaryHotkey.displayString)")
+                        onTriggerAll?()
+                    } else {
+                        print("tap: trigger \(primaryHotkey.displayString)")
+                        onTrigger?()
+                    }
                     return nil
                 }
                 if overviewHotkey.matches(keycode, flags) {
-                    print("tap: trigger overview \(overviewHotkey.displayString)")
                     session = overviewHotkey
-                    onTriggerOverview?()
+                    sessionReleaseOnShift = overviewHotkey.commitModifiers.isEmpty
+                    if fn {
+                        print("tap: trigger overview all (fn) \(overviewHotkey.displayString)")
+                        onTriggerOverviewAll?()
+                    } else {
+                        print("tap: trigger overview \(overviewHotkey.displayString)")
+                        onTriggerOverview?()
+                    }
                     return nil
                 }
             }
@@ -142,7 +216,17 @@ final class EventTap {
                 }
                 return nil
             }
+            // While the overlay is up, Cmd+1…9 switches straight to the Nth
+            // active window of the current Space, without waiting for Cmd to be
+            // released.
+            if activeNow, flags.contains(.maskCommand), let number = kVK_Digits[keycode] {
+                stopMinimizedRepeat()
+                print("tap: switch to tile #\(number)")
+                onSelectNumber?(number)
+                return nil
+            }
             if activeNow, keycode == kVK_Escape {
+                stopMinimizedRepeat()
                 print("tap: escape")
                 session = nil
                 onEscape?()
@@ -164,6 +248,7 @@ final class EventTap {
                         print("tap: close selected window")
                         onCloseWindow?()
                     case kVK_Comma:
+                        stopMinimizedRepeat()
                         print("tap: open settings")
                         session = nil
                         onSettings?()
@@ -175,20 +260,23 @@ final class EventTap {
                 return nil
             }
         } else if type == .flagsChanged {
+            if !flags.contains(.maskSecondaryFn) { stopMinimizedRepeat() }
             let fn = flags.contains(.maskSecondaryFn)
             let fnPressed = keycode == kVK_Function && fn && !fnWasDown
             fnWasDown = fn
             guard activeNow, let session else { return Unmanaged.passUnretained(event) }
-            // Pressing Fn while the trigger modifier is held steps through the
-            // minimized windows.
-            if fnPressed, !session.isReleased(flags) {
-                print("tap: cycle minimized (shift=\(shift))")
-                onCycleMinimized?(shift)
+            // Fn steps through minimized windows while the switcher is open.
+            if fnPressed, !sessionReleaseOnShift, !session.isReleased(flags) {
+                print("tap: cycle minimized (fn)")
+                onCycleMinimized?(backward)
+                startMinimizedRepeat()
                 return Unmanaged.passUnretained(event)
             }
-            if session.isReleased(flags) {
+            if session.isReleased(flags) || (sessionReleaseOnShift && !shift) {
+                stopMinimizedRepeat()
                 print("tap: commit (hotkey released, flags=\(flags.rawValue))")
                 self.session = nil
+                sessionReleaseOnShift = false
                 onCommit?()
             }
         }

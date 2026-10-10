@@ -20,7 +20,10 @@ struct WindowInfo: Identifiable {
     var isOnScreen: Bool = true
     // Home Space for the all-Spaces overview. nil in the current-Space list.
     var spaceID: CGSSpaceID? = nil
-    var icon: NSImage? { NSRunningApplication(processIdentifier: pid)?.icon }
+    // Explicit icon, used by the settings preview's sample windows; nil falls
+    // back to the running app's icon.
+    var iconOverride: NSImage? = nil
+    var icon: NSImage? { iconOverride ?? NSRunningApplication(processIdentifier: pid)?.icon }
 }
 
 enum Windows {

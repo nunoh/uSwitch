@@ -21,15 +21,19 @@ final class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-private let tileSpacing: CGFloat = 12
-private let overlayPadding: CGFloat = 20
+let tileSpacing: CGFloat = 12
+let overlayPadding: CGFloat = 20
 private let screenMargin: CGFloat = 80
 // Keeps the overlay clear of the menu bar / Dock when it is taller than the
 // centered content (i.e. when the minimized strip extends it downward).
 private let overlayVerticalMargin: CGFloat = 60
-private let minimizedTileWidth: CGFloat = 140
-private let minimizedTileHeight: CGFloat = 28
+// Minimized windows can't be thumbnail-captured, so each one is a single app
+// icon ("favicon") rather than a titled strip.
+private let minimizedTileSize: CGFloat = 30
 private let minimizedTileSpacing: CGFloat = 8
+// Extra breathing room above the minimized strip so the icons read as their
+// own row rather than crowding the window thumbnails above them.
+private let minimizedStripTopMargin: CGFloat = 8
 private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
     .moveToActiveSpace,
     .transient,
@@ -41,6 +45,10 @@ private let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
 // How long a tile takes to leave the overlay after quit / close / minimize.
 // Short on purpose: a gentle fade and shrink, not a production.
 private let tileRemovalDuration: TimeInterval = 0.16
+// Minimizing instead sends the icon on a short flight from the tile down into
+// the icon strip. A little longer than a removal so the arc reads, and the
+// panel resize uses the same duration so the strip grows in step with it.
+private let minimizeFlightDuration: TimeInterval = 0.34
 
 // A window paired with its index in the flat selection order, so a tile can
 // report which slot it is without recomputing the layout.
@@ -136,29 +144,32 @@ struct ThumbnailTile: View {
 }
 
 // A minimized window can't be thumbnail-captured, and a squashed preview reads
-// as "small window" rather than "in the Dock". A compact icon + title strip
-// conveys the state directly, and it is the same shape in both switcher modes.
+// as "small window" rather than "in the Dock". A single app icon conveys the
+// state directly, and it is the same shape in both switcher modes. The window
+// title is still available as a tooltip.
 struct MinimizedTile: View {
     let window: WindowInfo
     let selected: Bool
     let hovered: Bool
+    // Opacity of the icon when the tile is neither selected nor hovered.
+    let idleOpacity: CGFloat
 
     var body: some View {
-        HStack(spacing: 6) {
+        ZStack {
             if let icon = window.icon {
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 14, height: 14)
+                    .scaledToFit()
+                    .frame(width: minimizedTileSize - 10, height: minimizedTileSize - 10)
+                    .opacity(iconOpacity)
+            } else {
+                Text(String(window.appName.prefix(1)).uppercased())
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .opacity(iconOpacity)
             }
-            Text(label)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .truncationMode(.middle)
         }
-        .padding(.horizontal, 8)
-        .frame(width: minimizedTileWidth, height: minimizedTileHeight, alignment: .leading)
+        .frame(width: minimizedTileSize, height: minimizedTileSize)
         .background(
             RoundedRectangle(cornerRadius: 7)
                 .fill(fillColor)
@@ -167,10 +178,16 @@ struct MinimizedTile: View {
             RoundedRectangle(cornerRadius: 7)
                 .stroke(strokeColor, lineWidth: selected ? 2 : 1)
         )
+        .help(label)
     }
 
     private var label: String {
         window.title.isEmpty ? window.appName : window.title
+    }
+
+    // Faded while idle, solid when it is the target so it stays legible.
+    private var iconOpacity: CGFloat {
+        (selected || hovered) ? 1 : idleOpacity
     }
 
     private var fillColor: Color {
@@ -216,16 +233,41 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+// The overlay's render state. The hosting view observes a single, long-lived
+// instance so that SwiftUI sees steady updates instead of a brand-new root view
+// every render. That steady identity is what lets `@Namespace` (and therefore
+// `matchedGeometryEffect`) persist across a minimize.
+@MainActor
+final class OverlayModel: ObservableObject {
+    @Published var sections: [OverlaySection] = []
+    @Published var thumbnails: [CGWindowID: NSImage] = [:]
+    @Published var selectedIndex: Int = 0
+    @Published var hoveredIndex: Int?
+    @Published var tile: TileMetrics = Settings.shared.tileSize.metrics
+    @Published var maxHeight: CGFloat = 800
+    @Published var minimizedIconOpacity: CGFloat = CGFloat(Settings.defaultMinimizedIconOpacity)
+    var onSelect: (Int) -> Void = { _ in }
+    var onHover: (Int) -> Void = { _ in }
+    var onHoverEnd: (Int) -> Void = { _ in }
+}
+
 struct OverlayView: View {
-    let sections: [OverlaySection]
-    let thumbnails: [CGWindowID: NSImage]
-    let selectedIndex: Int
-    let hoveredIndex: Int?
-    let tile: TileMetrics
-    let maxHeight: CGFloat
-    let onSelect: (Int) -> Void
-    let onHover: (Int) -> Void
-    let onHoverEnd: (Int) -> Void
+    @ObservedObject var model: OverlayModel
+    // Shared between a window's active thumbnail and its minimized icon so that
+    // minimizing sends the icon flying from the tile down into the icon strip.
+    // Owned by the persistent host, so it survives every render pass.
+    let iconFlight: Namespace.ID
+
+    private var sections: [OverlaySection] { model.sections }
+    private var thumbnails: [CGWindowID: NSImage] { model.thumbnails }
+    private var selectedIndex: Int { model.selectedIndex }
+    private var hoveredIndex: Int? { model.hoveredIndex }
+    private var tile: TileMetrics { model.tile }
+    private var maxHeight: CGFloat { model.maxHeight }
+    private var minimizedIconOpacity: CGFloat { model.minimizedIconOpacity }
+    private var onSelect: (Int) -> Void { model.onSelect }
+    private var onHover: (Int) -> Void { model.onHover }
+    private var onHoverEnd: (Int) -> Void { model.onHoverEnd }
 
     private var isEmpty: Bool {
         sections.allSatisfy { $0.active.isEmpty && $0.minimized.isEmpty }
@@ -309,7 +351,7 @@ struct OverlayView: View {
                             scale: scale,
                             tile: tile
                         )
-                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                        .matchedGeometryEffect(id: item.window.id, in: iconFlight)
                         .contentShape(Rectangle())
                         .onTapGesture { onSelect(item.index) }
                         .onContinuousHover { phase in
@@ -328,33 +370,29 @@ struct OverlayView: View {
     private func minimizedBlock(_ windows: [IndexedWindow], maxTilesPerRow: Int) -> some View {
         let rows = chunked(windows, size: max(1, maxTilesPerRow))
         VStack(alignment: .leading, spacing: 6) {
-            Text("MINIMIZED")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white.opacity(0.45))
-                .padding(.leading, 2)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: minimizedTileSpacing) {
-                        ForEach(row) { item in
-                            MinimizedTile(
-                                window: item.window,
-                                selected: item.index == selectedIndex,
-                                hovered: item.index == hoveredIndex
-                            )
-                            .transition(.scale(scale: 0.9).combined(with: .opacity))
-                            .contentShape(Rectangle())
-                            .onTapGesture { onSelect(item.index) }
-                            .onContinuousHover { phase in
-                                switch phase {
-                                case .active: onHover(item.index)
-                                case .ended: onHoverEnd(item.index)
-                                }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: minimizedTileSpacing) {
+                    ForEach(row) { item in
+                        MinimizedTile(
+                            window: item.window,
+                            selected: item.index == selectedIndex,
+                            hovered: item.index == hoveredIndex,
+                            idleOpacity: minimizedIconOpacity
+                        )
+                        .matchedGeometryEffect(id: item.window.id, in: iconFlight)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onSelect(item.index) }
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active: onHover(item.index)
+                            case .ended: onHoverEnd(item.index)
                             }
                         }
                     }
                 }
             }
         }
+        .padding(.top, minimizedStripTopMargin)
     }
 
     private func chunked<T>(_ array: [T], size: Int) -> [[T]] {
@@ -365,9 +403,24 @@ struct OverlayView: View {
     }
 }
 
+// The panel's permanent root view. Because it is installed once and never
+// replaced, its `@Namespace` outlives every render pass.
+struct OverlayRoot: View {
+    @ObservedObject var model: OverlayModel
+    @Namespace private var iconFlight
+
+    var body: some View {
+        OverlayView(model: model, iconFlight: iconFlight)
+    }
+}
+
 @MainActor
 final class Switcher {
     enum Mode { case currentSpace, allSpaces }
+
+    // Which windows the trigger key steps through: the open ones, the minimized
+    // ones, or both together. Fixed by how the overlay was opened.
+    enum CycleSet { case open, all }
 
     // One visual group, in display order. `active` precedes `minimized`, which
     // is exactly the flat selection order the switcher cycles through.
@@ -380,9 +433,14 @@ final class Switcher {
     }
 
     private let panel = OverlayPanel()
-    private var hosting: NSHostingView<OverlayView>?
+    // The single, long-lived render state observed by the hosting view. Mutating
+    // this (inside `withAnimation`) is what animates the overlay — the root view
+    // itself is installed once and never swapped.
+    private let model = OverlayModel()
+    private var hosting: NSHostingView<OverlayRoot>?
     private var sections: [SpaceSection] = []
     private var mode: Mode = .currentSpace
+    private var cycleSet: CycleSet = .open
     // Window ids in the enumerator's front-to-back (MRU) order, before grouping.
     // Used to pick the default target independent of section order.
     private var loadOrder: [CGWindowID] = []
@@ -397,7 +455,7 @@ final class Switcher {
     // minimized windows grows it downward instead of nudging the live
     // thumbnails up.
     private var anchorHeight: CGFloat = 0
-    // True while Fn-cycling has the selection on a minimized tile.
+    // True while the minimized-window cycle has selected a minimized tile.
     private var browsingMinimized = false
     private var openMouseLocation: CGPoint = .zero
     private var hoverArmed = false
@@ -424,6 +482,17 @@ final class Switcher {
 
     init(cache: ThumbnailCache) {
         self.cache = cache
+        // Tile interactions are routed through the model (its callbacks are
+        // plain stored closures, unlike the old per-render view closures).
+        model.onSelect = { [weak self] idx in
+            MainActor.assumeIsolated { self?.commit(at: idx) }
+        }
+        model.onHover = { [weak self] idx in
+            MainActor.assumeIsolated { self?.hover(over: idx) }
+        }
+        model.onHoverEnd = { [weak self] idx in
+            MainActor.assumeIsolated { self?.hoverEnded(at: idx) }
+        }
         activeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
@@ -456,9 +525,13 @@ final class Switcher {
         }
     }
 
-    func open() { open(mode: .currentSpace) }
+    func open() { open(mode: .currentSpace, cycle: Settings.shared.minimizedInCycle ? .all : .open) }
 
-    func openOverview() { open(mode: .allSpaces) }
+    func openAll() { open(mode: .currentSpace, cycle: .all) }
+
+    func openOverview() { open(mode: .allSpaces, cycle: Settings.shared.minimizedInCycle ? .all : .open) }
+
+    func openOverviewAll() { open(mode: .allSpaces, cycle: .all) }
 
     // Flip between the current-Space switcher and the all-Spaces overview while
     // the overlay stays open, keeping the selected window if it appears in both.
@@ -482,14 +555,16 @@ final class Switcher {
         captureMissingThumbnails()
     }
 
-    private func open(mode: Mode) {
+    private func open(mode: Mode, cycle: CycleSet) {
         let t0 = Date()
         active = true
         browsingMinimized = false
         self.mode = mode
+        self.cycleSet = cycle
         openScreen = currentScreen()
         loadWindows()
         selectedIndex = initialSelection()
+        clampSelection()
         hoveredIndex = nil
         openMouseLocation = NSEvent.mouseLocation
         hoverArmed = false
@@ -498,7 +573,7 @@ final class Switcher {
         })
         render()
         positionAndShow()
-        print("panel shown (\(mode)) in \(Int(Date().timeIntervalSince(t0) * 1000))ms (cached \(thumbnails.count)/\(windows.count))")
+        print("panel shown (\(mode), cycle=\(cycle)) in \(Int(Date().timeIntervalSince(t0) * 1000))ms (cached \(thumbnails.count)/\(windows.count))")
 
         // Fall back to one-shot capture for windows we've never seen.
         captureMissingThumbnails()
@@ -643,13 +718,17 @@ final class Switcher {
     func minimizeSelected() {
         guard isOpen, let target = selectedTarget else { return }
         print("minimize: [\(target.pid)] \(target.appName) — \(target.title)")
-        guard Windows.minimize(target) else { return }
-        // The window stays in the list — it just drops into the minimized strip
-        // instead of disappearing.
+        // Move the tile into the strip the instant the key is pressed. The AX
+        // round trip can block the main thread for a long time on a busy app
+        // (each call allows a 0.25s messaging timeout), and the flight must not
+        // wait on it — the app minimizes on the windowless thread below.
         moveToMinimized(windowID: target.id)
-        // The genie keeps the window "on screen" for a beat, so re-check after
-        // it settles in case the minimize was ignored.
-        scheduleRefresh(after: 0.6)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let ok = Windows.minimize(target)
+            // The app refused to minimize: put the tile back.
+            guard !ok else { return }
+            await self?.scheduleRefresh(after: 0.2)
+        }
     }
 
     private func moveToMinimized(windowID: CGWindowID) {
@@ -662,7 +741,7 @@ final class Switcher {
         }
         hoveredIndex = nil
         clampSelection()
-        render(animated: true)
+        render(animated: true, flight: true)
     }
 
     // Drop the matching tiles immediately so the action feels instant; the
@@ -699,11 +778,14 @@ final class Switcher {
         render()
     }
 
-    // Minimized windows are shown in their own strip but are not part of the
-    // keyboard cycle — Tab only ever lands on a real (active) window.
+    // The windows the trigger key steps through, per the session's cycle set.
     private var cycleIndices: [Int] {
-        if Settings.shared.minimizedInCycle { return Array(windows.indices) }
-        return windows.indices.filter { !windows[$0].isMinimized }
+        switch cycleSet {
+        case .open:
+            return windows.indices.filter { !windows[$0].isMinimized }
+        case .all:
+            return Array(windows.indices)
+        }
     }
 
     private func initialSelection() -> Int {
@@ -738,7 +820,7 @@ final class Switcher {
         selectedIndex = selectable.last(where: { $0 < selectedIndex }) ?? selectable[0]
     }
 
-    // Fn while the overlay is up: step through the minimized windows only.
+    // Fn while the overlay is up: cycle minimized windows.
     func cycleMinimized(backward: Bool) {
         guard isOpen else { return }
         let order = windows.indices.filter { windows[$0].isMinimized }
@@ -775,6 +857,26 @@ final class Switcher {
         commit()
     }
 
+    // Cmd+1…9 while open: switch straight to the Nth active window of the
+    // current Space. Unlike Tab-cycling this does not wait for Cmd to be
+    // released — the window is raised the moment the digit is pressed.
+    func selectNumber(_ number: Int) {
+        guard isOpen, number >= 1 else { return }
+        let ids = numberedWindowIDs
+        guard ids.indices.contains(number - 1),
+              let index = windows.firstIndex(where: { $0.id == ids[number - 1] })
+        else { return }
+        commit(at: index)
+    }
+
+    // The current Space's first nine active windows, in visual order — the
+    // targets for Cmd+1…9. The minimized strip and the other Spaces of the
+    // overview are deliberately not addressable by number.
+    private var numberedWindowIDs: [CGWindowID] {
+        guard let current = sections.first(where: { $0.isCurrent }) else { return [] }
+        return current.active.prefix(9).map(\.id)
+    }
+
     func hover(over index: Int) {
         guard isOpen, windows.indices.contains(index) else { return }
         // The panel opens centered, often right under the resting cursor;
@@ -806,7 +908,11 @@ final class Switcher {
         close()
         if let target {
             print("commit: raising [\(target.pid)] \(target.appName) — \(target.title) minimized=\(target.isMinimized)")
-            Windows.raise(target)
+            // Raising a minimized window is several accessibility round trips
+            // (unminimize, then focus). Run them once this event has finished
+            // processing, so the panel's order-out is committed and the overlay
+            // disappears immediately instead of lingering until AX returns.
+            DispatchQueue.main.async { Windows.raise(target) }
         } else {
             print("commit: no target at index \(index) (windows.count=\(list.count))")
         }
@@ -839,37 +945,61 @@ final class Switcher {
         return !current.isDisjoint(with: openSpaceIDs)
     }
 
-    private func render(animated: Bool = false) {
-        let model = overlaySections()
-        let view = OverlayView(
-            sections: model,
-            thumbnails: thumbnails,
-            selectedIndex: selectedIndex,
-            hoveredIndex: hoveredIndex,
-            tile: Settings.shared.tileSize.metrics,
-            maxHeight: overlayMaxHeight(),
-            onSelect: { [weak self] idx in self?.commit(at: idx) },
-            onHover: { [weak self] idx in self?.hover(over: idx) },
-            onHoverEnd: { [weak self] idx in self?.hoverEnded(at: idx) }
-        )
-        let h = hosting ?? {
-            let h = FirstMouseHostingView(rootView: view)
+    private func render(animated: Bool = false, flight: Bool = false) {
+        let modelSections = overlaySections()
+        let metrics = Settings.shared.tileSize.metrics
+        let maxH = overlayMaxHeight()
+
+        // Install the persistent host once. Its `@Namespace` — used for the
+        // minimize flight — lives as long as the panel, which is what lets
+        // matchedGeometryEffect bridge renders.
+        if hosting == nil {
+            let h = FirstMouseHostingView(rootView: OverlayRoot(model: model))
             hosting = h
             panel.contentView = h
-            return h
-        }()
+        }
+
         // A tile leaving the list fades and shrinks instead of popping; the
         // transaction also animates the remaining tiles into their new slots.
-        if animated {
-            withAnimation(.easeInOut(duration: tileRemovalDuration)) {
-                h.rootView = view
-            }
-        } else {
-            h.rootView = view
+        // A minimize flight gets a springy, slightly longer curve so the icon's
+        // path down into the strip reads.
+        func apply() {
+            model.sections = modelSections
+            model.thumbnails = thumbnails
+            model.selectedIndex = selectedIndex
+            model.hoveredIndex = hoveredIndex
+            model.tile = metrics
+            model.maxHeight = maxH
+            model.minimizedIconOpacity = CGFloat(Settings.shared.minimizedIconOpacity)
         }
-        let size = h.fittingSize
-        anchorHeight = anchorHeight(for: model, fullHeight: size.height)
-        resizePanel(to: size, animated: animated)
+        if animated {
+            let animation: Animation = flight
+                ? .interpolatingSpring(stiffness: 210, damping: 24)
+                : .easeInOut(duration: tileRemovalDuration)
+            withAnimation(animation) { apply() }
+        } else {
+            apply()
+        }
+
+        // Measure against a throwaway host so the panel is sized from the new
+        // state right away, rather than waiting on the live host's update pass.
+        let size = measure(sections: modelSections, metrics: metrics, maxHeight: maxH)
+        anchorHeight = anchorHeight(for: modelSections, fullHeight: size.height)
+        resizePanel(to: size, animated: animated, flight: flight)
+    }
+
+    // Lay the overlay out in a throwaway host to read its fitting size.
+    private func measure(
+        sections: [OverlaySection],
+        metrics: TileMetrics,
+        maxHeight: CGFloat
+    ) -> CGSize {
+        let probe = OverlayModel()
+        probe.sections = sections
+        probe.tile = metrics
+        probe.maxHeight = maxHeight
+        probe.selectedIndex = -1
+        return NSHostingView(rootView: OverlayRoot(model: probe)).fittingSize
     }
 
     // The "no minimized windows" height of the overlay. Measured by laying out
@@ -895,18 +1025,12 @@ final class Switcher {
         }
         // Thumbnails and icons never change a tile's frame, so an empty map is
         // enough to measure the layout.
-        let probe = OverlayView(
-            sections: stripped,
-            thumbnails: [:],
-            selectedIndex: -1,
-            hoveredIndex: nil,
-            tile: Settings.shared.tileSize.metrics,
-            maxHeight: overlayMaxHeight(),
-            onSelect: { _ in },
-            onHover: { _ in },
-            onHoverEnd: { _ in }
-        )
-        return NSHostingView(rootView: probe).fittingSize.height
+        let probe = OverlayModel()
+        probe.sections = stripped
+        probe.tile = Settings.shared.tileSize.metrics
+        probe.maxHeight = overlayMaxHeight()
+        probe.selectedIndex = -1
+        return NSHostingView(rootView: OverlayRoot(model: probe)).fittingSize.height
     }
 
     // Flatten the sections into the display model, assigning each window its
@@ -946,7 +1070,7 @@ final class Switcher {
     // curve so the whole overlay moves as one. Its top stays put at the
     // centered position of `anchorHeight`, so extra (minimized) rows extend the
     // overlay downward rather than shifting the live thumbnails upward.
-    private func resizePanel(to size: CGSize, animated: Bool) {
+    private func resizePanel(to size: CGSize, animated: Bool, flight: Bool = false) {
         guard animated, panel.isVisible, let screen = openScreen else {
             panel.setContentSize(size)
             return
@@ -958,7 +1082,7 @@ final class Switcher {
             height: size.height
         )
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = tileRemovalDuration
+            ctx.duration = flight ? minimizeFlightDuration : tileRemovalDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
         }
@@ -1005,7 +1129,7 @@ final class Switcher {
     // wrap onto another row.
     private func minimizedTilesPerRow(on screen: NSScreen?) -> Int {
         let available = (screen?.visibleFrame.width ?? 1280) - screenMargin * 2 - overlayPadding * 2
-        return max(1, Int((available + minimizedTileSpacing) / (minimizedTileWidth + minimizedTileSpacing)))
+        return max(1, Int((available + minimizedTileSpacing) / (minimizedTileSize + minimizedTileSpacing)))
     }
 
     // Horizontally centered, vertically anchored by the top per anchorOriginY.

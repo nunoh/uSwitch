@@ -9,7 +9,7 @@ final class SettingsWindow {
         presentSingleton(
             &window,
             title: "uSwitch Settings",
-            size: NSSize(width: 440, height: 640),
+            size: NSSize(width: 480, height: 620),
             styleMask: [.titled, .closable],
             rootView: SettingsView(settings: .shared)
         )
@@ -18,6 +18,21 @@ final class SettingsWindow {
 
 private struct SettingsView: View {
     @ObservedObject var settings: Settings
+
+    var body: some View {
+        TabView {
+            GeneralTab(settings: settings)
+                .tabItem { Label("General", systemImage: "gearshape") }
+            AppearanceTab(settings: settings)
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+        }
+        .frame(width: 480, height: 620)
+    }
+}
+
+// Everything that is not about how the overlay looks.
+private struct GeneralTab: View {
+    @ObservedObject var settings: Settings
     @ObservedObject private var updates = UpdateChecker.shared
 
     var body: some View {
@@ -25,32 +40,15 @@ private struct SettingsView: View {
             Section("Shortcuts") {
                 HotkeyRow(title: "Switcher (current Space)", hotkey: $settings.primaryHotkey)
                 HotkeyRow(title: "All-Spaces overview", hotkey: $settings.overviewHotkey)
+                Text("Press Fn while the switcher is open to step through minimized windows; hold to repeat. Shift reverses the Tab cycle.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Windows") {
+            Section("Behavior") {
                 Toggle("Show minimized windows", isOn: $settings.minimizedShown)
                 Toggle("Cycle through minimized windows", isOn: $settings.minimizedInCycle)
                     .disabled(!settings.minimizedShown)
-            }
-
-            Section("Appearance") {
-                Picker("Thumbnail size", selection: $settings.tileSize) {
-                    ForEach(Settings.TileSize.allCases) { size in
-                        Text(size.label).tag(size)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                ValueSlider(
-                    title: "Other Spaces size",
-                    value: $settings.otherSpaceScale,
-                    range: 0.5...1.0,
-                    step: 0.02,
-                    display: "\(Int((settings.otherSpaceScale * 100).rounded()))%"
-                )
-            }
-
-            Section("Timing") {
                 ValueSlider(
                     title: "Flick delay",
                     value: $settings.flickDelay,
@@ -90,7 +88,45 @@ private struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 640)
+    }
+}
+
+// The appearance controls, next to the live preview they affect.
+private struct AppearanceTab: View {
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        Form {
+            Section {
+                OverlayPreview(settings: settings)
+            }
+
+            Section("Thumbnails") {
+                Picker("Size", selection: $settings.tileSize) {
+                    ForEach(Settings.TileSize.allCases) { size in
+                        Text(size.label).tag(size)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                ValueSlider(
+                    title: "Other Spaces size",
+                    value: $settings.otherSpaceScale,
+                    range: 0.5...1.0,
+                    step: 0.02,
+                    display: "\(Int((settings.otherSpaceScale * 100).rounded()))%"
+                )
+
+                ValueSlider(
+                    title: "Minimized icon opacity",
+                    value: $settings.minimizedIconOpacity,
+                    range: 0.2...1.0,
+                    step: 0.05,
+                    display: "\(Int((settings.minimizedIconOpacity * 100).rounded()))%"
+                )
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

@@ -21,7 +21,11 @@
 - They render as a compact icon + title strip (no thumbnail) beneath the active
   tiles of their Space, under a small "Minimized" caption. The strip is smaller
   than a full tile.
-- Tab skips them — they are display-only. Click one to restore and raise it.
+- Tab skips them by default. Click one to restore and raise it, or press Fn
+  while the switcher is open to step through minimized windows.
+- Fn alone never opens the overlay. Holding Fn repeats cycling using the macOS
+  keyboard repeat delay and interval. Releasing it, committing, or canceling
+  stops repeat.
 - Restoring happens before raising; a minimized window cannot be focused in place.
 
 ## Overview grouping
@@ -37,7 +41,9 @@
 
 ## Selection
 - Tab cycles forward (hold modifier).
-- Shift+Tab cycles backward.
+- Shift+Tab (with the hold modifier still down) cycles backward.
+- Pressing Fn steps through minimized windows. Fn plus either main shortcut
+  opens an all-window cycle.
 - Releasing the hold modifier (Cmd for the switcher, Option for the overview)
   raises the selected window.
 - Selecting a window on another Space switches to that Space.
@@ -45,6 +51,9 @@
 - Cmd+W closes the selected window and keeps the overlay open.
 - Cmd+M minimizes the selected window; the tile moves into the minimized strip
   and the overlay stays open.
+- Cmd+1…9 switches straight to the Nth active window of the current Space
+  (in visual order); the minimized strip and other Spaces are not addressable
+  this way.
 - Cmd+, dismisses without switching and opens the Settings window.
 - S or Cmd+F toggles between the current-Space switcher and the all-Spaces
   overview while the overlay stays open; the selected window is preserved when

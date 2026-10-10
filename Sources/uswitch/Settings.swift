@@ -30,7 +30,8 @@ struct Hotkey: Equatable {
     }
 
     // The modifiers that must be released to commit a switch. Shift is excluded:
-    // it only selects direction.
+    // it reverses the cycle direction. Shift-only sessions handle their release
+    // in EventTap.
     var commitModifiers: CGEventFlags {
         normalizedModifiers.intersection([.maskCommand, .maskAlternate, .maskControl])
     }
@@ -39,7 +40,7 @@ struct Hotkey: Equatable {
         guard keyCode == self.keyCode else { return false }
         let relevant = flags.intersection(Self.relevantModifiers)
         if relevant == normalizedModifiers { return true }
-        // Shift is accepted as an extra modifier so Shift+hotkey goes backward.
+        // Shift reverses cycling and is allowed on top of the base shortcut.
         if !normalizedModifiers.contains(.maskShift) {
             return relevant == normalizedModifiers.union(.maskShift)
         }
@@ -106,6 +107,9 @@ struct TileMetrics {
 final class Settings: ObservableObject {
     static let shared = Settings()
 
+    // Default opacity for an idle minimized icon.
+    static let defaultMinimizedIconOpacity: Double = 0.4
+
     enum TileSize: String, CaseIterable, Identifiable {
         case small, medium, large
 
@@ -128,6 +132,9 @@ final class Settings: ObservableObject {
     @Published var overviewHotkey: Hotkey { didSet { persist() } }
     @Published var minimizedShown: Bool { didSet { persist() } }
     @Published var minimizedInCycle: Bool { didSet { persist() } }
+    // Opacity of an idle minimized icon (1 = solid). The selected/hovered tile
+    // always draws at full strength.
+    @Published var minimizedIconOpacity: Double { didSet { persist() } }
     @Published var tileSize: TileSize { didSet { persist() } }
     @Published var otherSpaceScale: Double { didSet { persist() } }
     @Published var flickDelay: Double { didSet { persist() } }
@@ -140,6 +147,7 @@ final class Settings: ObservableObject {
         overviewHotkey = .overviewDefault
         minimizedShown = true
         minimizedInCycle = false
+        minimizedIconOpacity = Settings.defaultMinimizedIconOpacity
         tileSize = .medium
         otherSpaceScale = 0.72
         // No flick grace by default: the overlay shows on every switch, as it
@@ -154,6 +162,7 @@ final class Settings: ObservableObject {
         overviewHotkey = .overviewDefault
         minimizedShown = true
         minimizedInCycle = false
+        minimizedIconOpacity = Settings.defaultMinimizedIconOpacity
         tileSize = .medium
         otherSpaceScale = 0.72
         flickDelay = 0
@@ -168,6 +177,7 @@ final class Settings: ObservableObject {
         static let overview = "overviewHotkey"
         static let minimizedShown = "minimizedShown"
         static let minimizedInCycle = "minimizedInCycle"
+        static let minimizedIconOpacity = "minimizedIconOpacity"
         static let tileSize = "tileSize"
         static let otherSpaceScale = "otherSpaceScale"
         // Renamed from "flickDelay" so the pre-0 default (0.1s) does not linger.
@@ -182,6 +192,9 @@ final class Settings: ObservableObject {
         }
         if defaults.object(forKey: Key.minimizedInCycle) != nil {
             minimizedInCycle = defaults.bool(forKey: Key.minimizedInCycle)
+        }
+        if defaults.object(forKey: Key.minimizedIconOpacity) != nil {
+            minimizedIconOpacity = defaults.double(forKey: Key.minimizedIconOpacity)
         }
         if let raw = defaults.string(forKey: Key.tileSize), let size = TileSize(rawValue: raw) {
             tileSize = size
@@ -200,6 +213,7 @@ final class Settings: ObservableObject {
         writeHotkey(overviewHotkey, Key.overview)
         defaults.set(minimizedShown, forKey: Key.minimizedShown)
         defaults.set(minimizedInCycle, forKey: Key.minimizedInCycle)
+        defaults.set(minimizedIconOpacity, forKey: Key.minimizedIconOpacity)
         defaults.set(tileSize.rawValue, forKey: Key.tileSize)
         defaults.set(otherSpaceScale, forKey: Key.otherSpaceScale)
         defaults.set(flickDelay, forKey: Key.flickDelay)
