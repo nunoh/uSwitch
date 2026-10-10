@@ -1,0 +1,86 @@
+name: Beta
+
+on:
+  push:
+    branches: [dev]
+    # Docs do not change an installable build.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+# Only the newest dev commit should publish under the shared `beta` tag.
+concurrency:
+  group: beta
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  beta:
+    runs-on: macos-14
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Full history: the build number is the commit count, and the notes list
+      # the commits since the last stable tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assign the beta version
+        run: |
+          build=$(git rev-list --count HEAD)
+          echo "BUILD=$build" >> "$GITHUB_ENV"
+          echo "VERSION=$(cat version.txt)-beta.$build" >> "$GITHUB_ENV"
+
+      - name: Import the signing certificate
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: scripts/import-signing-cert.sh
+
+      - name: Build DMG and zip
+        run: make dmg VERSION="$VERSION" BUILD="$BUILD"
+
+      - name: Sign the Sparkle update feed
+        env:
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+        run: scripts/make-appcast.sh "dist/uSwitch-v${VERSION}-arm64.zip" beta
+
+      - name: Check the signature
+        run: scripts/check-signature.sh dist/uSwitch.app
+
+      - name: Checksums
+        working-directory: dist
+        run: shasum -a 256 uSwitch-*.dmg uSwitch-*.zip | tee SHA256SUMS.txt
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/uSwitch-*.dmg
+            dist/uSwitch-*.zip
+
+      # The `beta` release is replaced on every run, so it only ever holds the
+      # newest build. It is a prerelease: `releases/latest` (the stable feed
+      # and the Homebrew tap) never points at it.
+      - name: Publish the beta release
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v*')
+          {
+            echo "Beta build \`$VERSION\` from $GITHUB_SHA. For testing only."
+            echo
+            echo "Changes since $last:"
+            echo
+            git log --no-merges --format='- %s' "$last..HEAD"
+          } > dist/notes.md
+          gh release delete beta --cleanup-tag --yes 2>/dev/null || true
+          gh release create beta \
+            --prerelease --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "uSwitch $VERSION" \
+            --notes-file dist/notes.md \
+            dist/uSwitch-*.dmg dist/uSwitch-*.zip dist/SHA256SUMS.txt dist/appcast.xml
