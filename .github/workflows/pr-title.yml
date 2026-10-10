@@ -8,8 +8,9 @@ permissions:
   pull-requests: read
 
 jobs:
-  # PRs are squash-merged with the PR title as the commit subject, and
-  # release-please builds the changelog from those subjects.
+  # Feature PRs are squash-merged with the PR title as the commit subject, and
+  # release-please builds the changelog from those subjects. Promotion and
+  # sync PRs (dev <-> main) use merge commits titled with the PR title.
   pr-title:
     runs-on: ubuntu-latest
     steps:

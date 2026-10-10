@@ -8,6 +8,9 @@ DMG_STAGING  = dist/dmg
 INSTALLED    = /Applications/uSwitch.app
 # release-please bumps version.txt; CI passes VERSION from the release tag.
 VERSION     ?= $(shell cat version.txt)
+# Sparkle compares CFBundleVersion. The commit count only grows, so stable and
+# beta builds share one order. CI needs a full clone (fetch-depth: 0).
+BUILD       ?= $(shell git rev-list --count HEAD)
 LOCAL_SIGN_ID = uSwitch Self-Signed
 GNOME_EXT_UUID = uswitch@nh.com
 GNOME_EXT_SRC  = gnome-extension/$(GNOME_EXT_UUID)
@@ -23,7 +26,7 @@ dev: setup-cert
 	@cp CHANGELOG.md $(DEV_APP)/Contents/Resources/CHANGELOG.md
 	@mkdir -p $(DEV_APP)/Contents/Frameworks
 	@ditto .build/debug/Sparkle.framework $(DEV_APP)/Contents/Frameworks/Sparkle.framework
-	@sed 's/__VERSION__/dev/g' Resources/Info.plist > $(DEV_APP)/Contents/Info.plist
+	@sed -e 's/__VERSION__/dev/g' -e 's/__BUILD__/dev/g' Resources/Info.plist > $(DEV_APP)/Contents/Info.plist
 	@./scripts/sign-app.sh $(DEV_APP) "$(LOCAL_SIGN_ID)"
 	@pkill -x uswitch 2>/dev/null || true
 	@echo "→ running $(DEV_APP)/Contents/MacOS/uswitch (Ctrl+C to quit)"
@@ -37,7 +40,7 @@ build-app:
 	@cp Resources/AppIcon.icns $(RELEASE_APP)/Contents/Resources/AppIcon.icns
 	@cp CHANGELOG.md $(RELEASE_APP)/Contents/Resources/CHANGELOG.md
 	@ditto .build/release/Sparkle.framework $(RELEASE_APP)/Contents/Frameworks/Sparkle.framework
-	@sed 's/__VERSION__/$(VERSION)/g' Resources/Info.plist > $(RELEASE_APP)/Contents/Info.plist
+	@sed -e 's/__VERSION__/$(VERSION)/g' -e 's/__BUILD__/$(BUILD)/g' Resources/Info.plist > $(RELEASE_APP)/Contents/Info.plist
 	@file $(RELEASE_APP)/Contents/MacOS/uswitch | grep -q 'arm64'
 
 bundle: setup-cert build-app

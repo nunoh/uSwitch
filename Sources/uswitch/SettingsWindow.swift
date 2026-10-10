@@ -71,7 +71,11 @@ private struct GeneralTab: View {
                     set: { updates.setAutomaticDownloads($0) }
                 ))
                 .disabled(!updates.checksAutomatically)
-                Text("Updates are signed and installed when you quit uSwitch.")
+                Toggle("Receive beta updates", isOn: Binding(
+                    get: { updates.receivesBetas },
+                    set: { updates.setReceivesBetas($0) }
+                ))
+                Text("Updates are signed and installed when you quit uSwitch. Betas get new features first and may have bugs.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

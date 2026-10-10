@@ -1,0 +1,35 @@
+name: Sync dev
+
+# Releases and hotfixes land on main. Keep a PR open that brings them back to
+# dev; merge it with a merge commit, not a squash.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open the sync PR
+        run: |
+          if git merge-base --is-ancestor origin/main origin/dev; then
+            echo "dev already has main"
+            exit 0
+          fi
+          if [ -n "$(gh pr list --base dev --head main --state open --json number --jq '.[]')" ]; then
+            echo "sync PR already open"
+            exit 0
+          fi
+          gh pr create --base dev --head main \
+            --title "chore: sync main into dev" \
+            --body "Brings releases and hotfixes from \`main\` back to \`dev\`. Merge with **Create a merge commit**, not squash."
